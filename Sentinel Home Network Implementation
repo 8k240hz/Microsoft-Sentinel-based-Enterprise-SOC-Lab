@@ -1,0 +1,1330 @@
+Enterprise SOC Lab with Microsoft Sentinel 
+Home Network Integration
+ Corporate Documentation with Knowledge Transfer
+ Project Owner: Security Operations Team
+ Version: 1.0
+ Last Updated: October 26, 2025
+ Classification: Internal Use
+ Executive Summary
+ This document provides comprehensive documentation for an enterprise-style Security Operations
+ Center (SOC) laboratory implementation using Microsoft Sentinel on Azure's free tier, integrated with
+ home network infrastructure. The project demonstrates cloud-native SIEM capabilities, advanced
+ threat detection using KQL analytics, real-time security monitoring, and practical incident response
+ workflows.
+ Key Achievements:
+ Deployed Microsoft Sentinel SIEM on Azure free tier (10GB/day ingestion for 31 days)
+ Integrated 9 diverse log sources including Windows, Linux, and network devices
+ Created 15+ custom KQL detection rules covering MITRE ATT&CK techniques
+ Built comprehensive security dashboard tracking failed logins, attacked systems, alert severity,
+ and MTTR
+ Established home network monitoring for real-world threat detection
+ 1. Project Objectives
+ 1.1 Primary Goals
+ Centralize Security Monitoring: Aggregate logs from heterogeneous systems into unified SIEM
+ platform
+ Automate Threat Detection: Implement rule-based analytics for brute force, privilege escalation,
+ lateral movement, and malicious code execution
+ Enable Visual Analytics: Create interactive dashboards for security posture visibility and
+ incident metrics
+ Demonstrate Cloud Skills: Showcase proficiency in Azure services, KQL, and cloud-native
+ security operations
+Cost-Effective Learning: Utilize Azure free tier to minimize expenses while gaining enterprise
+level experience
+ 1.2 Learning Outcomes
+ Upon completion, practitioners will have hands-on experience with:
+ Microsoft Sentinel deployment and configuration
+ Data collection from Windows, Linux, and network devices
+ Kusto Query Language (KQL) for security analytics
+ Custom detection rule development aligned with MITRE ATT&CK
+ Workbook creation for security visualization
+ Incident response workflow design
+ Azure cost management and optimization
+ 2. Solution Architecture
+ 2.1 High-Level Architecture
+ ┌─────────────────────────────────────────────────────────────┐
+ │                    
+MICROSOFT AZURE                          
+│
+ │  ┌──────────────────────────────────────────────────────┐  │
+ │  │           
+Microsoft Sentinel (SIEM/SOAR)             
+│  │  • Threat Detection    • Analytics Rules             
+│  │  • Incident Management • Workbooks/Dashboards        
+│  │
+ │  │
+ │  │
+ │  └──────────────────┬───────────────────────────────────┘  │
+ │                     
+│                                       
+│
+ │  ┌──────────────────▼───────────────────────────────────┐  │
+ │  │         
+Log Analytics Workspace                      
+│  │  • Centralized Log Storage  • 90-day Retention      
+│  │  • KQL Query Engine         
+• Data Transformation    
+│  │
+ │  └──────────────────┬───────────────────────────────────┘  │
+ │                     
+│                                       
+│
+ └─────────────────────┼───────────────────────────────────────┘
+ │
+ ┌─────────────┴─────────────┬──────────────┬────────┐
+ ▼                           
+┌─────────┐               
+│ Windows │               
+│ VMs (5) │               
+│         
+│               
+│ MMA/AMA │               
+│ Agent   │               
+└─────────┘               
+• Event ID:               
+▼              
+┌─────────┐    
+│  │
+ │  │
+ ▼        
+▼
+ ┌─────────┐  ┌──────────┐
+ │  Linux  │    │ pfSense │  │   Home   │
+ │ VMs (3) │    │Firewall │  │ Network  │
+ │         
+│ OMS     
+│    
+│    
+│         
+│  │ Devices  │
+ │ Syslog  │  │          
+│ Agent   │    │ Forwarder│  │          
+└─────────┘    
+│
+ │
+ └─────────┘  └──────────┘
+ • Auth Logs   • Blocked    • Router Logs
+ 4624, 4625,             
+4688, 4720,             
+4672, 4728              
+• Syslog      
+• Traffic    
+• IoT Activity
+ • SSH Fails   • VPN Logs   • (Optional)
+ • Sudo Usage  • DNS Query
+2.2 Component Descriptions
+ Cloud Components
+ Microsoft Sentinel
+ Cloud-native Security Information and Event Management (SIEM)
+ Security Orchestration, Automation, and Response (SOAR) capabilities
+ Leverages Azure Monitor for underlying log infrastructure
+ Provides advanced analytics, threat intelligence integration, and AI-driven insights
+ Log Analytics Workspace
+ Centralized repository for all ingested security logs
+ Supports KQL for querying and analysis
+ Offers 90-day free data retention
+ Enables data transformation and enrichment
+ Azure Monitor Agent (AMA)
+ Next-generation data collection agent
+ Supports Data Collection Rules (DCR) for granular log filtering
+ Replaces legacy Microsoft Monitoring Agent (MMA)
+ Reduces ingestion costs through intelligent filtering
+ Log Sources
+ Windows Systems (5 VMs)
+ Event IDs Collected:
+ 4624: Successful logon
+ 4625: Failed logon (brute force indicator)
+ 4688: Process creation (suspicious PowerShell)
+ 4672: Special privileges assigned (privilege escalation)
+ 4720: User account created
+ 4728, 4732, 4756: Security group modifications
+ Linux Systems (3 VMs)
+ Log Types:
+ Auth logs (failed SSH attempts, sudo usage)
+ Syslog (system events, service failures)
+ Cron logs (scheduled task execution)
+ Package manager logs (unauthorized software installation)
+pfSense Firewall
+ Forwarded via Syslog:
+ Blocked inbound connections
+ Firewall rule hits
+ VPN authentication events
+ NAT translations
+ DNS query logs (optional)
+ Home Network Devices
+ Router system logs
+ DHCP lease assignments
+ IoT device communication patterns (privacy-conscious filtering recommended)
+ 3. Azure Free Tier Configuration
+ 3.1 Free Trial Benefits
+ Microsoft provides generous free tier allocation for Sentinel evaluation:
+ Component
+ Data Ingestion
+ Data Retention
+ Free Allowance
+ 10 GB/day
+ First 90 days
+ Duration
+ 31 days
+ Ongoing
+ Notes
+ Covers both Sentinel + Log Analytics
+ Extended retention charged at $0.10/GB/month
+ Workspace Limit
+ Analytics Rules
+ 20 workspaces
+ Unlimited
+ Per tenant
+ Always free
+ Sufficient for multiple projects
+ Rule execution cost included
+ Important: After 31-day trial, workspaces automatically transition to pay-as-you-go pricing. Set up
+ Azure Cost Management alerts to avoid surprises .
+ [1]
+ 3.2 Cost Optimization Strategies
+ To maximize free tier value and control costs:
+ Pre-Ingestion Filtering:
+ [2]
+ Use Data Collection Rules (DCR) with XPath filters to collect only critical Event IDs
+ Example XPath: 
+Security!*[System[(EventID=4624) or (EventID=4625)]]
+ Reduces noise from verbose logs (e.g., 4634 logoff events)
+ Strategic Event Selection:
+ [3]
+ Focus on high-value security events aligned with detection goals
+ Avoid collecting "Information" level events unless necessary
+Prioritize error, warning, and critical severity levels
+ pfSense Log Filtering:
+ Configure pfSense to send only firewall block actions, not all traffic
+ Use Syslog severity filtering (Warning and above)
+ Implement rate limiting for repetitive events (e.g., port scans)
+ Monitoring Ingestion:
+ [4]
+ [5]
+ Check daily ingestion volume: 
+Usage | where DataType == "SecurityEvent" | summarize
+ sum(Quantity) by bin(TimeGenerated, 1d)
+ Set Azure Monitor alerts for approaching 10GB threshold
+ Review Cost Management + Billing dashboard regularly
+ 4. Deployment Guide
+ 4.1 Prerequisites
+ Azure Account Requirements:
+ Active Azure subscription with Owner or Contributor role
+ Valid email for account verification
+ Credit card for identity verification (not charged during free trial)
+ On-Premises Requirements:
+ Hypervisor (VMware, Hyper-V, VirtualBox) with 16GB+ RAM recommended
+ 5 Windows VMs (Windows 10/11 or Server 2019/2022)
+ 3 Linux VMs (Ubuntu 20.04/22.04 or CentOS 8)
+ pfSense VM or physical firewall appliance
+ Network connectivity to Azure (outbound HTTPS)
+ 4.2 Step-by-Step Deployment
+ Phase 1: Azure Sentinel Setup
+ Step 1: Create Log Analytics Workspace
+ # Using Azure CLI
+ az login
+ az group create --name SOC-Lab-RG --location eastus
+ az monitor log-analytics workspace create \--resource-group SOC-Lab-RG \--workspace-name SOC-Lab-Workspace \
+--location eastus \--sku PerGB2018
+ Step 2: Enable Microsoft Sentinel
+ 1. Navigate to Azure Portal → Search "Microsoft Sentinel"
+ 2. Click + Create
+ 3. Select SOC-Lab-Workspace created above
+ 4. Review pricing (10GB/day free for 31 days)
+ 5. Click Add to enable Sentinel on workspace
+ Step 3: Verify Free Trial Activation
+ Go to Sentinel > Settings > Pricing
+ Confirm "Free trial" badge appears
+ [6]
+ [7]
+ Note trial expiration date (31 days from activation)
+ Phase 2: Windows VM Onboarding
+ Step 4: Install Azure Monitor Agent (AMA)
+ For each Windows VM:
+ # Download and install AMA using PowerShell
+ $workspaceId = "&lt;Your-Workspace-ID&gt;"
+ $workspaceKey = "&lt;Your-Workspace-Key&gt;"
+ [1]
+ # Install AMA
+ Install-Module -Name Az.MonitoringSolutions
+ Install-AzMonitorAgent -ComputerName localhost `-WorkspaceId $workspaceId `-WorkspaceKey $workspaceKey
+ [2]
+ Or via Azure Portal:
+ 1. Sentinel > Configuration > Data connectors
+ 2. Search Windows Security Events via AMA
+ 3. Click Open connector page
+ 4. + Create data collection rule
+ 5. Select target VMs and event set (Common or Custom)
+ [3]
+ Step 5: Create Custom Data Collection Rule (DCR)
+ To collect specific Event IDs and reduce costs:
+ [8]
+ &lt;QueryList&gt;
+&lt;Query Id="0" Path="Security"&gt;
+ &lt;Select Path="Security"&gt;
+ *[System[(EventID=4624) or (EventID=4625) or (EventID=4688) 
+or (EventID=4672) or (EventID=4720) or (EventID=4728) 
+or (EventID=4732) or (EventID=4756)]]
+ &lt;/Select&gt;
+ &lt;/Query&gt;
+ &lt;/QueryList&gt;
+ Add this XPath in DCR configuration under Data sources > Windows Event Logs > Custom .
+ [3]
+ Phase 3: Linux System Onboarding
+ Step 6: Install OMS Agent (Linux)
+ On each Linux VM:
+ [8]
+ # Download and install OMS agent
+ wget https://raw.githubusercontent.com/Microsoft/OMS-Agent-for-Linux/master/installer/scr
+ sudo sh onboard_agent.sh -w &lt;WorkspaceID&gt; -s &lt;WorkspaceKey&gt;
+ # Verify agent status
+ sudo /opt/microsoft/omsagent/bin/service_control status
+ Step 7: Configure Syslog Collection
+ Edit 
+/etc/rsyslog.d/95-omsagent.conf:
+ auth,authpriv.*  @127.0.0.1:25224
+ *.*  @127.0.0.1:25226
+ Restart rsyslog: 
+sudo systemctl restart rsyslog
+ Verify logs flowing: 
+Syslog | where Computer contains "linux" | take 10
+ Phase 4: pfSense Firewall Integration
+ Step 8: Deploy Syslog Collector VM
+ Create dedicated Ubuntu VM for Syslog forwarding:
+ # Install rsyslog on Ubuntu collector
+ sudo apt update &amp;&amp; sudo apt install rsyslog -y
+ # Configure to receive remote Syslog (port 514)
+ sudo nano /etc/rsyslog.conf
+ # Uncomment:
+ # module(load="imudp")
+ # input(type="imudp" port="514")
+ [9]
+sudo systemctl restart rsyslog
+ Step 9: Configure pfSense Syslog Forwarding
+ In pfSense WebGUI:
+ 1. Status > System Logs > Settings
+ 2. Enable Send log messages to remote syslog server
+ 3. Remote log servers: 
+&lt;Syslog-Collector-IP&gt;:514
+ 4. Remote Syslog Contents: Select Firewall Events
+ 5. Save configuration
+ [4]
+ [5]
+ [10]
+ Step 10: Forward Syslog to Azure
+ Install AMA on Syslog collector VM and create DCR:
+ # Install AMA on Ubuntu collector
+ wget https://aka.ms/AMALinuxInstaller
+ sudo sh AMALinuxInstaller
+ In Azure Portal:
+ 1. Sentinel > Data connectors > Syslog via AMA
+ 2. Create DCR selecting Syslog collector VM
+ 3. Configure facilities: kern, daemon, auth
+ [11]
+ [9]
+ Phase 5: Home Network Integration (Optional)
+ Step 11: Monitor Home Router Logs
+ Many consumer routers support Syslog forwarding:
+ # Router configuration (example for ASUS routers)
+ Administration &gt; System &gt; Enable Syslog
+ Syslog Server: &lt;Syslog-Collector-IP&gt;
+ Log Level: Notice
+ Privacy Considerations:
+ Avoid sending full DNS query logs (contains browsing history)
+ Focus on security-relevant events (blocked connections, authentication failures)
+ Use network segmentation to isolate IoT devices if monitoring them
+ [12]
+ [13]
+5. Detection Rule Development
+ 5.1 KQL Fundamentals
+ Kusto Query Language (KQL) is SQL-like language for querying Azure logs .
+ [14]
+ Basic Structure:
+ TableName
+ | where Condition
+ | summarize AggregateFunction by GroupByColumn
+ | project Column1, Column2
+ | sort by Column1 desc
+ Example: Count failed logins by account
+ [15]
+ SecurityEvent
+ | where EventID == 4625
+ | summarize FailureCount = count() by Account
+ | sort by FailureCount desc
+ 5.2 Custom Detection Rules
+ Rule 1: Brute Force Attack Detection
+ MITRE ATT&CK: T1110 - Brute Force
+ let timeframe = 5m;
+ let threshold = 5;
+ SecurityEvent
+ | where TimeGenerated &gt; ago(1h)
+ | where EventID == 4625  // Failed logon
+ | where AccountType == "User"
+ | summarize FailureCount = count(), 
+FailureTimes = make_list(TimeGenerated) 
+by Account, Computer, IpAddress, bin(TimeGenerated, timeframe)
+ | where FailureCount &gt;= threshold
+ | extend FirstFailure = FailureTimes[^0], LastFailure = FailureTimes[-1]
+ | project-reorder Account, Computer, IpAddress, FailureCount, 
+FirstFailure, LastFailure
+ Alert Configuration:
+ Severity: High
+ Frequency: Every 5 minutes
+ Lookback: 1 hour
+ Threshold: 5 failures in 5-minute window
+ [16]
+ [3]
+ [17]
+Rule 2: Suspicious PowerShell Execution
+ MITRE ATT&CK: T1059.001 - PowerShell
+ SecurityEvent
+ | where EventID == 4688  // Process creation
+ | where Process has_any ("powershell.exe", "pwsh.exe")
+ | where CommandLine has_any (
+ "Invoke-Expression", "Invoke-WebRequest", "DownloadString",
+ "EncodedCommand", "-enc", "bypass", "hidden", 
+"System.Net.WebClient", "IEX"
+ )
+ | extend DecodedCommand = base64_decode_tostring(
+ extract(@"-enc\s+([A-Za-z0-9+/=]+)", 1, CommandLine)
+ )
+ | project TimeGenerated, Computer, Account, Process, 
+CommandLine, DecodedCommand, ParentProcessName
+ Alert Configuration:
+ Severity: Medium
+ Frequency: Every 5 minutes
+ Lookback: 10 minutes
+ Entity Mapping: Account, Host, Process
+ Rule 3: Privilege Escalation
+ [16]
+ [18]
+ MITRE ATT&CK: T1068 - Exploitation for Privilege Escalation
+ SecurityEvent
+ | where EventID in (4672, 4674, 4673)  // Special privileges assigned
+ | where PrivilegeList has_any (
+ "SeDebugPrivilege",           
+// Debug programs
+ "SeTakeOwnershipPrivilege",   // Take ownership
+ "SeImpersonatePrivilege",     
+// Impersonate client
+ "SeLoadDriverPrivilege"       
+// Load device drivers
+ )
+ | where Account !endswith "$"  // Exclude machine accounts
+ | summarize PrivilegeCount = count(), 
+Privileges = make_set(PrivilegeList) 
+by Account, Computer, bin(TimeGenerated, 1h)
+ | where PrivilegeCount &gt; 3
+ | extend RiskScore = PrivilegeCount * 10
+ | project-reorder Account, Computer, PrivilegeCount, 
+Privileges, RiskScore
+ Alert Configuration:
+ Severity: High
+ Frequency: Every 15 minutes
+Lookback: 1 hour
+ [16]
+ Threshold: >3 sensitive privilege assignments
+ Rule 4: Lateral Movement (RDP Sessions)
+ [8]
+ MITRE ATT&CK: T1021.001 - Remote Desktop Protocol
+ let timeframe = 1h;
+ SecurityEvent
+ | where TimeGenerated &gt; ago(timeframe)
+ | where EventID == 4624  // Successful logon
+ | where LogonType == 10  // RemoteInteractive (RDP)
+ | summarize DistinctComputers = dcount(Computer), 
+Systems = make_set(Computer) 
+by Account, IpAddress
+ | where DistinctComputers &gt; 2  // Logged into &gt;2 systems
+ | extend Severity = case(
+ DistinctComputers &gt; 5, "High",
+ DistinctComputers &gt; 3, "Medium",
+ "Low"
+ )
+ | project-reorder Account, IpAddress, DistinctComputers, 
+Systems, Severity
+ Alert Configuration:
+ Severity: High
+ Frequency: Every 30 minutes
+ Lookback: 1 hour
+ Threshold: Account logged into >2 systems via RDP
+ Rule 5: Failed SSH Authentication (Linux)
+ MITRE ATT&CK: T1110 - Brute Force
+ [8]
+ [17]
+ let threshold = 5;
+ let timeframe = 10m;
+ Syslog
+ | where TimeGenerated &gt; ago(1h)
+ | where Facility == "auth" or Facility == "authpriv"
+ | where SyslogMessage has "Failed password"
+ | parse SyslogMessage with * "for " User " from " SourceIP " port " *
+ | where User != "root"  // Focus on non-root attempts
+ | summarize FailureCount = count() 
+by Computer, User, SourceIP, bin(TimeGenerated, timeframe)
+ | where FailureCount &gt;= threshold
+ | extend GeoInfo = geo_info_from_ip_address(SourceIP)
+ | extend Country = GeoInfo.country, City = GeoInfo.city
+ | project-reorder Computer, User, SourceIP, Country, 
+City, FailureCount
+Alert Configuration:
+ Severity: Medium
+ Frequency: Every 10 minutes
+ Lookback: 1 hour
+ Threshold: 5 failures in 10-minute window
+ Rule 6: Firewall Block Spike (pfSense)
+ [3]
+ [8]
+ MITRE ATT&CK: T1046 - Network Service Scanning
+ let baseline = 100;  // Normal hourly blocks
+ Syslog
+ | where Computer contains "pfsense" or Computer contains "firewall"
+ | where SyslogMessage has "block"
+ | parse SyslogMessage with * "SRC=" SourceIP ":" SourcePort 
+" DST=" DestIP ":" DestPort *
+ | summarize BlockCount = count() 
+by SourceIP, DestPort, bin(TimeGenerated, 1h)
+ | where BlockCount &gt; baseline
+ | extend ThreatType = case(
+ DestPort in (22, 3389), "Brute Force (SSH/RDP)",
+ DestPort in (80, 443), "Web Attack",
+ DestPort in (445, 139), "SMB Scan",
+ "Port Scan"
+ )
+ | project-reorder TimeGenerated, SourceIP, DestPort, 
+BlockCount, ThreatType
+ Alert Configuration:
+ Severity: Low (informational for port scans)
+ Frequency: Every 1 hour
+ Lookback: 2 hours
+ Threshold: >100 blocks from single IP
+ 5.3 Testing Detection Rules
+ Validation Methodology:
+ [5]
+ [10]
+ 1. Simulate Attack in Controlled Environment:
+ # Brute force simulation (from Kali VM)
+ hydra -l admin -P /usr/share/wordlists/rockyou.txt \
+ rdp://&lt;Target-IP&gt;
+ 2. Run Query in Sentinel Logs:
+ // Check if events captured
+ SecurityEvent
+| where EventID == 4625
+ | where Account == "admin"
+ | where TimeGenerated &gt; ago(10m)
+ 3. Verify Alert Triggered:
+ Go to Sentinel > Incidents
+ Check for new incident matching rule name
+ Review incident details, entities, and timeline
+ 6. Security Dashboard Creation
+ 6.1 Workbook Development
+ [19]
+ Microsoft Sentinel Workbooks use Azure Monitor visualizations powered by KQL .
+ Step 1: Create New Workbook
+ 1. Sentinel > Workbooks > + Add workbook
+ 2. Click Edit to enter design mode
+ 3. Remove default elements
+ Step 2: Add Title Section
+ [22]
+ [23]
+ Click Add > Add text, use Markdown:
+ ## SOC Security Dashboard
+ **Last Updated:** {TimeRange:label}  
+**Monitored Systems:** 9 | **Active Rules:** 15
+ [20]
+ [21]
+ Step 3: Add Failed Login Visualization
+ Click Add > Add query:
+ let timeRange = {TimeRange};
+ union SecurityEvent, Syslog
+ | where TimeGenerated {timeRange}
+ | where (EventID == 4625) or (SyslogMessage has "Failed password")
+ | summarize FailureCount = count() by bin(TimeGenerated, 1h)
+ | render timechart 
+with (title="Failed Authentication Attempts (Windows + Linux)")
+ Visualization Settings:
+ Chart Type: Time chart (line)
+ Size: Large
+ Time Range Parameter: Last 24 hours
+ [21]
+ [22]
+Step 4: Add Top Attacked Systems
+ SecurityEvent
+ | where TimeGenerated {TimeRange}
+ | where EventID == 4625
+ | summarize AttackCount = count() by Computer
+ | top 10 by AttackCount desc
+ | render barchart 
+with (title="Top 10 Most Targeted Systems", 
+xtitle="Computer", ytitle="Attack Count")
+ Visualization Settings:
+ Chart Type: Bar chart
+ Size: Medium
+ Color Scheme: Heat map (red gradient)
+ Step 5: Add Alert Severity Distribution
+ [21]
+ [23]
+ SecurityIncident
+ | where TimeGenerated {TimeRange}
+ | summarize IncidentCount = count() by Severity
+ | render piechart 
+with (title="Incident Severity Distribution")
+ Visualization Settings:
+ Chart Type: Pie chart
+ Size: Medium
+ Legend: Bottom
+ [24]
+ Step 6: Add Geographic Attack Map
+ SecurityEvent
+ | where TimeGenerated {TimeRange}
+ | where EventID == 4625
+ | where IpAddress != "-"
+ | extend GeoInfo = geo_info_from_ip_address(IpAddress)
+ | where isnotempty(GeoInfo.country)
+ | summarize AttackCount = count() 
+by Country = GeoInfo.country, 
+Latitude = GeoInfo.latitude, 
+Longitude = GeoInfo.longitude
+ | render scatterchart 
+with (kind=map, title="Attack Origin Heatmap")
+ Visualization Settings:
+ Chart Type: Map
+ Size: Large
+[25]
+ [26]
+ Bubble Size: Based on AttackCount
+ Step 7: Add MTTR Metric
+ SecurityIncident
+ | where TimeGenerated {TimeRange}
+ | where Status in ("Closed", "Resolved")
+ | extend MTTR = datetime_diff('minute', ClosedTime, CreatedTime)
+ | summarize AvgMTTR = avg(MTTR), 
+MedianMTTR = percentile(MTTR, 50)
+ | project AvgMTTR_Hours = round(AvgMTTR / 60.0, 2),
+ MedianMTTR_Hours = round(MedianMTTR / 60.0, 2)
+ Visualization Settings:
+ Chart Type: Tiles (KPI)
+ Size: Small
+ Metric: AvgMTTR_Hours
+ Label: "Avg MTTR (Hours)"
+ Step 8: Save Workbook
+ 1. Click Done Editing
+ [24]
+ 2. Save As → Name: "SOC Dashboard"
+ 3. Resource Group: SOC-Lab-RG
+ 4. Location: East US
+ [21]
+ [22]
+ 6.2 Interactive Features
+ Add Time Range Parameter:
+ 1. Edit > Add parameters
+ 2. Parameter name: TimeRange
+ 3. Parameter type: Time range picker
+ 4. Default value: Last 24 hours
+ 5. Use 
+{TimeRange} in all queries to make dashboard interactive
+ Add Computer Filter:
+ // Add dropdown to filter by system
+ SecurityEvent
+ | distinct Computer
+ | order by Computer asc
+ [21]
+ [23]
+ Create parameter of type Dropdown (multi-select) referencing this query .
+ [21]
+7. Home Network Monitoring
+ 7.1 Integration Architecture
+ Home Network
+ ├── ISP Router (Logs → Syslog Collector)
+ ├── pfSense Firewall (Primary Security Device)
+ ├── IoT Devices (Optional Monitoring)
+ └── Syslog Collector VM
+ ├── Receives: Router + pfSense logs
+ └── Forwards: Azure Monitor Agent → Sentinel
+ 7.2 Monitored Threat Scenarios
+ Scenario 1: Port Scan Detection
+ Detect reconnaissance attempts:
+ Syslog
+ | where Computer contains "pfsense"
+ | where SyslogMessage has "block"
+ | parse SyslogMessage with * "SRC=" SourceIP * " PROTO=" Protocol " SPT=" SourcePort " DP
+ | summarize PortsScanned = dcount(DestPort), 
+TargetPorts = make_set(DestPort) 
+by SourceIP, bin(TimeGenerated, 5m)
+ | where PortsScanned &gt; 10  // Scanned &gt;10 ports
+ | extend GeoInfo = geo_info_from_ip_address(SourceIP)
+ | extend Country = GeoInfo.country
+ | project TimeGenerated, SourceIP, Country, PortsScanned, TargetPorts
+ Scenario 2: Brute Force Against Home Services
+ Monitor failed authentication to SSH/RDP exposed services:
+ Syslog
+ | where SyslogMessage has_any ("Failed password", "authentication failure")
+ | parse SyslogMessage with * "from " SourceIP *
+ | summarize Attempts = count() by SourceIP, bin(TimeGenerated, 10m)
+ | where Attempts &gt; 5
+ Scenario 3: Suspicious Outbound Traffic
+ Detect potential malware C2 communication:
+ Syslog
+ | where Computer contains "pfsense"
+ | where SyslogMessage has "OUT="  // Outbound traffic
+ | parse SyslogMessage with * "DST=" DestIP * " DPT=" DestPort *
+ | where DestPort in (4444, 5555, 6666, 8080, 8888)  // Common C2 ports
+| summarize ConnectionCount = count() by DestIP, DestPort
+ | extend ThreatIntel = ipv4_lookup(DestIP, ThreatIntelligenceTable)
+ 7.3 Privacy and Compliance
+ Data Minimization:
+ Do NOT log full DNS queries (contains sensitive browsing history)
+ Filter out internal IP communication (192.168.x.x, 10.x.x.x)
+ Redact MAC addresses if monitoring IoT devices
+ Implement data retention policies (delete logs after 90 days)
+ Family Consent:
+ Inform household members of monitoring if shared network
+ Provide opt-out for personal devices
+ Use separate VLAN for monitored IoT devices
+ Legal Considerations:
+ Home monitoring generally permissible for own network
+ Do not monitor guest WiFi without disclosure
+ [12]
+ [13]
+ [27]
+ Check local privacy laws if logging neighbor-facing interfaces
+ 8. Knowledge Transfer (KT) Section
+ 8.1 For New SOC Analysts
+ Onboarding Checklist:
+ [ ] Request Azure account access (Contributor role on SOC-Lab-RG)
+ [ ] Complete Microsoft Learn path: 
+[ ] Review this documentation
+ SC-200 Security Operations Analyst
+ [ ] Shadow senior analyst for incident response (1 week)
+ [ ] Complete hands-on exercises below
+ Week 1 Exercises:
+ 1. Log Into Sentinel:
+ Access Azure Portal → Microsoft Sentinel
+ Navigate workspace: SOC-Lab-Workspace
+ Explore: Incidents, Logs, Workbooks, Analytics
+ [7]
+ [28]
+ 2. Run Basic KQL Queries:
+// View recent security events
+ SecurityEvent
+ | where TimeGenerated &gt; ago(1h)
+ | take 10
+ // Count events by type
+ SecurityEvent
+ | summarize count() by EventID
+ | sort by count_ desc
+ 3. Investigate Sample Incident:
+ Go to Incidents tab
+ Select any "Closed" incident
+ Review: Entities, Timeline, Comments, Actions taken
+ 4. Customize Dashboard:
+ Open Workbooks > SOC Dashboard
+ Add new visualization: "Your Choice of Query"
+ Save as copy: "SOC Dashboard - [YourName]"
+ 8.2 Understanding KQL
+ Learning Resources:
+ Microsoft KQL Tutorial 
+[14]
+ KQL Query Samples GitHub 
+Practice playground: 
+[29]
+ dataexplorer.azure.com
+ Essential KQL Operators:
+ Operator
+ where
+ Purpose
+ Filter rows
+ [28]
+ [21]
+ [23]
+ where EventID == 4625
+ summarize
+ Aggregate data
+ Example
+ summarize count() by Account
+ project
+ extend
+ Select columns
+ Add calculated
+ column
+ project TimeGenerated, Account, Computer
+ extend Duration = EndTime - StartTime
+ join
+ parse
+ Merge tables
+ Extract fields
+ SecurityEvent \| join kind=inner (Heartbeat) on
+ Computer
+ parse SyslogMessage with * "IP=" IP *
+ render
+ Visualize
+ Common Pitfalls:
+ render timechart
+ Case Sensitivity: Column names are case-sensitive (
+ Computer ≠ 
+computer)
+Time Filters: Always include 
+[14]
+ TimeGenerated filters to improve performance
+ Wildcards: Use 
+has for substring search, not 
+contains (faster)
+ Summarize Before Project: Aggregations must happen before column selection
+ 8.3 Access and Permissions
+ Azure RBAC Roles:
+ Role
+ Microsoft Sentinel Reader
+ Permissions
+ View incidents, data, workbooks
+ Microsoft Sentinel Responder
+ Above + manage incidents, run playbooks
+ [15]
+ Use Case
+ [18]
+ Junior analysts, read-only access
+ SOC analysts, incident handlers
+ Microsoft Sentinel Contributor
+ Owner
+ Above + create/edit rules, workbooks
+ Full control
+ Senior analysts, detection engineers
+ SOC manager, project administrators
+ Request Access:
+ 1. Email SOC Manager: [manager@company.com]
+ 2. Specify: Resource Group (SOC-Lab-RG), Role needed
+ 3. Complete security awareness training before access granted
+ 8.4 Environment Reset Procedures
+ Scenario: Agent Stops Sending Data
+ 1. Verify Agent Health:
+ Heartbeat
+ | where Computer == "&lt;TargetComputer&gt;"
+ | where TimeGenerated &gt; ago(1h)
+ | summarize LastHeartbeat = max(TimeGenerated)
+ [28]
+ 2. Check Agent on VM:
+ # Linux
+ sudo /opt/microsoft/omsagent/bin/service_control status
+ sudo /opt/microsoft/omsagent/bin/service_control restart
+ # Windows (PowerShell)
+ Get-Service -Name "AzureMonitorAgent"
+ Restart-Service -Name "AzureMonitorAgent"
+ 3. Re-onboard Agent if Needed:
+ Delete VM from Data connectors
+ Remove agent from VM
+ Reinstall using deployment guide (Phase 2/3)
+ [9]
+ [3]
+ Scenario: Exceeding Free Tier Limit
+1. Check Current Ingestion:
+ Usage
+ | where TimeGenerated &gt; startofday(ago(1d))
+ | summarize TotalGB = sum(Quantity) / 1000
+ 2. Identify Top Contributors:
+ Usage
+ | where TimeGenerated &gt; ago(1d)
+ | summarize GB = sum(Quantity) / 1000 by DataType
+ | sort by GB desc
+ 3. Optimize:
+ Modify DCR to reduce Event IDs collected
+ Disable verbose logging (e.g., 4634 logoff events)
+ Consider stopping non-critical VMs
+ Scenario: Lab Teardown (End of Project)
+ [3]
+ [8]
+ # Delete entire resource group (removes all resources)
+ az group delete --name SOC-Lab-RG --yes --no-wait
+ # Verify deletion
+ az group show --name SOC-Lab-RG
+ # Should return error: ResourceGroupNotFound
+ 8.5 Troubleshooting Common Issues
+ Issue: No Data in Sentinel Logs
+ Symptoms: Queries return empty results, workbooks blank
+ Resolution:
+ 1. Check data connector status: Sentinel > Data connectors
+ 2. Verify agent installed: RDP/SSH to VM, check service status
+ 3. Confirm firewall allows outbound HTTPS (443) to 
+4. Wait 10-15 minutes for initial data ingestion
+ Issue: Detection Rule Not Triggering
+ *.ods.opinsights.azure.com
+ [30]
+ [3]
+ Symptoms: No incidents despite matching events in logs
+ Resolution:
+ 1. Test query manually in Logs: Copy rule KQL, adjust time range
+ 2. Check rule status: Analytics > Active rules > [RuleName] > Enable
+ 3. Verify threshold met: Rule may require >X events in time window
+4. Review entity mapping: Ensure required entities present in data
+ [16]
+ [19]
+ Issue: Workbook Errors
+ Symptoms: "Bad Request", "Invalid Query", blank visualizations
+ Resolution:
+ 1. Edit workbook, check query syntax for errors
+ 2. Verify time range parameter exists: 
+3. Ensure tables exist: 
+{TimeRange}
+ SecurityEvent, 
+Syslog must have data
+ 4. Clear browser cache, reload workbook
+ 9. Maintenance and Best Practices
+ 9.1 Daily Operations
+ Morning Checklist:
+ [21]
+ [22]
+ [ ] Review overnight incidents: Sentinel > Incidents > Status: New
+ [ ] Check system health: Workbooks > SOC Dashboard
+ [ ] Verify data ingestion: 
+Heartbeat | summarize count() by Computer
+ [ ] Monitor ingestion volume: Cost Management > Cost analysis
+ Incident Response Workflow:
+ 1. Triage: Assess severity, entities involved
+ 2. Investigate: Review logs, timeline, related alerts
+ 3. Contain: Isolate affected systems (manually or via playbook)
+ 4. Remediate: Apply patches, reset passwords, block IPs
+ 5. Document: Add comments, update status, close incident
+ 9.2 Monthly Tasks
+ Update Detection Rules:
+ Review false positive rate for each rule
+ [28]
+ [28]
+ Tune thresholds based on environment (e.g., increase brute force count if noisy)
+ [16]
+ Add new rules for emerging threats (MITRE ATT&CK updates)
+ Dashboard Optimization:
+ Add/remove widgets based on stakeholder feedback
+ Optimize slow queries (add time filters, reduce data scanned)
+ Create role-specific dashboards (exec summary, deep-dive)
+ [21]
+ [18]
+Agent Maintenance:
+ Check for AMA updates: Azure Portal notifies if available
+ Review deprecated agents (MMA → AMA migration)
+ [3]
+ Validate certificate expiration for TLS connections
+ 9.3 Security Best Practices
+ Principle of Least Privilege:
+ Grant minimum Azure RBAC roles needed
+ Separate dev/test environment from production monitoring
+ Use Managed Identities for automation (avoid hardcoded credentials)
+ Data Protection:
+ Enable Azure Monitor Private Link to avoid public internet exposure
+ Encrypt sensitive fields using Log Analytics transformations
+ [28]
+ [31]
+ Implement data retention policies (delete after 90 days for compliance)
+ Audit and Compliance:
+ Enable Azure Activity Logs connector (free data source)
+ Track who modified detection rules: 
+AzureActivity | where OperationName contains
+ "Microsoft.SecurityInsights/alertRules"
+ Export incident reports quarterly for compliance archives
+ 9.4 Performance Tuning
+ Query Optimization:
+ // ❌ BAD: Scans all data, then filters
+ SecurityEvent
+ | project TimeGenerated, EventID, Account
+ | where TimeGenerated &gt; ago(1d)
+ // ✅ GOOD: Filters first, then projects
+ SecurityEvent
+ | where TimeGenerated &gt; ago(1d)
+ | project TimeGenerated, EventID, Account
+ [2]
+ [32]
+ Workbook Performance:
+ Limit default time range to 24 hours (avoid 30-day queries)
+ Use 
+summarize to aggregate data before rendering
+ Cache results where possible (workbook settings)
+ [21]
+ Detection Rule Efficiency:
+Avoid 
+join operations in high-frequency rules (<5 min intervals)
+ Use 
+where before 
+parse to reduce parsing overhead
+ Test rules on sample data before enabling
+ [16]
+ [19]
+ 10. Playbook Automation (Optional Advanced Feature)
+ Microsoft Sentinel supports automated response via Logic Apps playbooks .
+ Example: Auto-Block IP on Brute Force
+ 1. Create Logic App:
+ Azure Portal > Logic Apps > + Create
+ Name: BlockIP-Playbook
+ 2. Add Sentinel Trigger:
+ [33]
+ [34]
+ Trigger: When Microsoft Sentinel incident creation rule was triggered
+ 3. Add Action: Parse IP from Entities:
+ Action: Entities - Get IPs
+ Incident: From trigger
+ 4. Add Action: Update Firewall:
+ Connector: Azure Firewall (or pfSense API)
+ Action: Create rule to block IP
+ IP Address: From previous step
+ 5. Add Action: Update Incident:
+ Action: Update incident
+ Status: Closed
+ Comment: "IP {IP} automatically blocked"
+ Test Playbook:
+ Manually run playbook from incident
+ Verify firewall rule created
+ Confirm incident status updated
+ 11. Reporting and Metrics
+ [33]
+ [33]
+ [34]
+11.1 Executive Dashboard (Weekly Report)
+ Key Metrics for Leadership:
+ // Total Incidents This Week
+ SecurityIncident
+ | where TimeGenerated &gt; startofweek(now())
+ | summarize TotalIncidents = count()
+ // Incidents by Severity
+ SecurityIncident
+ | where TimeGenerated &gt; startofweek(now())
+ | summarize count() by Severity
+ // MTTR
+ SecurityIncident
+ | where Status == "Closed"
+ | where TimeGenerated &gt; startofweek(now())
+ | extend MTTR_Hours = datetime_diff('hour', ClosedTime, CreatedTime)
+ | summarize AvgMTTR = avg(MTTR_Hours)
+ // Top Attack Types
+ SecurityIncident
+ | where TimeGenerated &gt; startofweek(now())
+ | extend AttackTactic = tostring(parse_json(AdditionalData).tactics[^0])
+ | summarize count() by AttackTactic
+ | top 5 by count_ desc
+ Export to PowerPoint:
+ Use Power BI connector for Sentinel
+ Scheduled refresh every Monday morning
+ Auto-email to stakeholders
+ [28]
+ 11.2 Compliance Reporting
+ NIST CSF Mapping:
+ Tag detection rules with NIST functions:
+ Detection Rule
+ Brute Force Detection
+ NIST Function
+ Detect (DE)
+ NIST Category
+ DE.CM-1: Network monitored
+ Privilege Escalation
+ Detect (DE)
+ DE.CM-7: Unauthorized activity monitored
+ PowerShell Execution
+ Lateral Movement
+ Detect (DE)
+ Respond (RS)
+ DE.AE-2: Detected events analyzed
+ RS.AN-1: Notifications from detection systems
+ Annual Audit Trail:
+// All incidents handled this year
+ SecurityIncident
+ | where TimeGenerated &gt; startofyear(now())
+ | project IncidentNumber, Title, Severity, Status, 
+CreatedTime, ClosedTime, Owner
+ | order by CreatedTime desc
+ Export to CSV for audit records .
+ [28]
+ 12. Cost Management
+ 12.1 Monitoring Spend
+ Set Budget Alert:
+ 1. Cost Management + Billing > Budgets > + Add
+ 2. Scope: SOC-Lab-RG
+ 3. Budget amount: $50/month
+ 4. Alert threshold: 80% ($40)
+ 5. Email: [your-email@company.com]
+ Daily Ingestion Check:
+ [1]
+ Usage
+ | where TimeGenerated &gt; ago(24h)
+ | summarize IngestedGB = sum(Quantity) / 1000
+ | extend Status = case(
+ IngestedGB &gt; 10, "⚠  Over Free Tier",
+ IngestedGB &gt; 8, "⚠  Warning (80%)",
+ "✅ Normal"
+ )
+ 12.2 Post-Free-Tier Strategy
+ Option 1: Commitment Tier
+ If continuing beyond 31 days:
+ 100GB/day commitment: $296/month (~$0.10/GB)
+ 200GB/day commitment: $559/month (~$0.09/GB)
+ Better than pay-as-you-go ($2.99/GB for Sentinel)
+ Option 2: Scale Down
+ Keep only critical VMs (Windows DC, pfSense)
+ Reduce ingestion to <5GB/day
+ [1]
+ [35]
+[1]
+ [2]
+ Estimated cost: ~$15-20/month
+ Option 3: Migrate to Self-Hosted SIEM
+ Deploy Wazuh or Elastic Security (free, open-source)
+ Export historical data from Sentinel
+ Keep Azure account for resume/portfolio
+ 13. Conclusion
+ This enterprise SOC lab demonstrates:
+ [36]
+ [37]
+ ✅ Cloud-Native Security Operations: Sentinel as modern SIEM
+ ✅ Scalable Architecture: Handles diverse log sources (Windows, Linux, network)
+ ✅ Advanced Threat Detection: 15+ KQL rules aligned with MITRE ATT&CK
+ ✅ Operational Dashboards: Real-time visibility into security posture
+ ✅ Cost-Effective Learning: Leverages Azure free tier for hands-on experience
+ ✅ Real-World Integration: Home network monitoring for practical skills
+ Next Steps:
+ Expand detection coverage: Add Office 365, Azure AD logs
+ Implement automation: Playbooks for common response actions
+ Integrate threat intelligence: VirusTotal, AbuseIPDB connectors
+ Pursue certification: Microsoft SC-200 Security Operations Analyst
+ 14. Glossary
+ AMA - Azure Monitor Agent (next-gen data collection)
+ DCR - Data Collection Rule (granular log filtering)
+ KQL - Kusto Query Language (Azure log query syntax)
+ MMA - Microsoft Monitoring Agent (legacy agent, deprecated)
+ MTTR - Mean Time To Respond (incident response speed metric)
+ SIEM - Security Information and Event Management
+ SOAR - Security Orchestration, Automation, and Response
+ 15. References
+ [1]
+ Microsoft Sentinel Pricing - 
+[28]
+ learn.microsoft.com/azure/sentinel/billing
+ [25]
+ [31]
+ [26]
+ [2]
+ Microsoft Sentinel Setup - 
+ Log Retention - 
+logos-red.com/blog
+ learn.microsoft.com/answers/questions/5572601
+ Azure Sentinel Lab - 
+github.com/portfoleyo/AzureSentinelLab
+ Free Data Ingestion - 
+[6]
+ Onboard Sentinel - 
+simonangling.com/free-data-ingestion
+ learn.microsoft.com/azure/sentinel/quickstart-onboard
+ [7]
+ What is Sentinel - 
+learn.microsoft.com/azure/sentinel/overview
+ pfSense Integration - youtube.com/watch?v=wWeFRXDo5I8
+ pfSense Community - techcommunity.microsoft.com/sentinel
+ pfSense GitHub - forum.netgate.com/topic/157638
+ Data Collection Best Practices - learn.microsoft.com/azure/sentinel/best-practices-data
+ Syslog Forwarding - learn.microsoft.com/azure/sentinel/forward-syslog-monitor-agent
+ NL2KQL - arxiv.org/abs/2404.02933
+ Xpert KQL - arxiv.org/abs/2312.11988
+ KQL Hunting Queries - github.com/Bert-JanP/Hunting-Queries-Detection-Rules
+ Detect Threats Tutorial - learn.microsoft.com/azure/sentinel/tutorial-log4j-detection
+ Splunk to Sentinel Migration - learn.microsoft.com/azure/sentinel/migration-splunk-detection-rules
+ Security Events AMA - jeffreyappel.nl/collect-security-events-sentinel
+ Create Workbooks - learn.microsoft.com/azure/sentinel/sentinel-workbook-creation
+ SOC Testing - northwave-cybersecurity.com/soc-testing-sentinel
+ Event ID Reference - learn.microsoft.com/azure/sentinel/windows-security-event-id-reference
+ Monitor Data - learn.microsoft.com/azure/sentinel/monitor-your-data
+ Summary Rules - kqlquery.com/posts/sentinel-summary-rules
+ KQL Alert Examples - stackoverflow.com/questions/76375936
+ Create Dashboard - eddieamaya.com/creating-workbook-dashboard-sentinel
+ Workbook Tutorial - youtube.com/watch?v=07O6srhiEmE
+ Cybersecurity Homelab - github.com/birdm4nw/Cybersecurity-HomeLab
+ Homelab Projects - cybercademy.org/cybersecurity-homelab-project
+ Playbook Templates - learn.microsoft.com/azure/sentinel/automation/use-playbook-templates
+ Sentinel Documentation - learn.microsoft.com/azure/sentinel
+ Playbook Recommendations - learn.microsoft.com/azure/sentinel/automation/playbook-recommen
+ dations
+ Document Control
+ Version Date Author Changes
+ 1.0 Oct 26, 2025 SOC Team Initial release
+ Approval
+ Role Name Signature Date
+ SOC Manager ___________ ___________ ______
+ Security Director ___________ ___________ ______
+ Classification: Internal Use
+ Retention: 3 years from last update
+ End of Corporate Documentation
+ ⁂
+ [4]
+ [5]
+ [10]
+ [30]
+ [9]
+ [14]
+ [15]
+ [29]
+ [16]
+ [18]
+ [3]
+ [20]
+ [19]
+ [8]
+ [21]
+ [24]
+ [17]
+ [22]
+ [23]
+ [36]
+ [37]
+ [33]
+ [28]
+ [34]
+ [38] [39] [40] [41] [42] [43] [44] [45] [46] [47] [48] [49] [50] [51] [52] [53] [54] [55] [56] [57] [58] [59] [60] [61] [62] [63] [64] [65] [66] [67]
+ [68] [69] [70] [71] [72] [73] [74] [75] [76] [77] [78] [79] [80] [81] [82] [83] [84] [85] [86] [87] [88] [89] [90] [91] [92] [93] [94] [95] [96] [97]
+ [98] [99] [100] [101] [102] [103] [104] [105] [106] [107] [108] [109] [110] [111] [112] [113] [114] [115] [116] [117] [118] [119] [120] [121]
+ [122] [123] [124] [125] [126] [127] [128] [129] [130]
+1. https://learn.microsoft.com/en-us/azure/sentinel/billing
+ 2. https://simonangling.com/free-data-ingestion-for-microsoft-sentinel/
+ 3. https://jeffreyappel.nl/collect-security-events-in-sentinel-with-the-new-ama-agent-and-dcr/
+ 4. https://www.youtube.com/watch?v=wWeFRXDo5I8
+ 5. https://techcommunity.microsoft.com/discussions/microsoftsentinel/pfsense-logs-showing-up-very-nicely-in-azur
+ e-sentinel-dashboard/363005
+ 6. https://learn.microsoft.com/en-us/azure/sentinel/quickstart-onboard
+ 7. https://learn.microsoft.com/en-us/azure/sentinel/overview
+ 8. https://learn.microsoft.com/en-us/azure/sentinel/windows-security-event-id-reference
+ 9. https://learn.microsoft.com/en-us/azure/sentinel/forward-syslog-monitor-agent
+ 10. https://forum.netgate.com/topic/157638/pfsense-syslog-to-azure-sentinel
+ 11. https://www.securden.com/endpoint-privilege-manager/help/integrations/siem-syslog/how-to-configure-azure-se
+ ntinel-for-collecting-syslog-from-securden-epm.html
+ 12. https://www.mdpi.com/1424-8220/22/23/9389/pdf?version=1669904017
+ 13. https://www.manageengine.com/products/eventlog/monitor-router-logs.html
+ 14. https://arxiv.org/pdf/2404.02933.pdf
+ 15. https://arxiv.org/pdf/2312.11988.pdf
+ 16. https://learn.microsoft.com/en-us/azure/sentinel/tutorial-log4j-detection
+ 17. https://stackoverflow.com/questions/76375936/can-someone-assist-me-with-my-kql-query-to-create-an-alert-for
+login-failures-in
+ 18. https://learn.microsoft.com/en-us/azure/sentinel/migration-splunk-detection-rules
+ 19. https://northwave-cybersecurity.com/threat-intel-research/soc-testing-microsoft-sentinel-analytic-rules-at-scale
+ 20. https://learn.microsoft.com/en-us/azure/sentinel/sentinel-workbook-creation
+ 21. https://learn.microsoft.com/en-us/azure/sentinel/monitor-your-data
+ 22. https://eddieamaya.com/2024/02/07/creating-a-workbook-dashboard-on-sentinel/
+ 23. https://www.youtube.com/watch?v=07O6srhiEmE
+ 24. https://kqlquery.com/posts/sentinel-summary-rules/
+ 25. https://logos-red.com/blog/how-to-build-a-microsoft-azure-sentinel-siem-cybersecurity-lab/
+ 26. https://github.com/portfoleyo/AzureSentinelLab
+ 27. https://www.reddit.com/r/AskNetsec/comments/125xrzy/is_it_worth_collecting_guest_wifi_logs_and/
+ 28. https://learn.microsoft.com/en-us/azure/sentinel/
+ 29. https://github.com/Bert-JanP/Hunting-Queries-Detection-Rules
+ 30. https://learn.microsoft.com/en-us/azure/sentinel/best-practices-data
+ 31. https://learn.microsoft.com/en-us/answers/questions/5572601/log-retention-in-microsoft-sentinel
+ 32. https://learn.microsoft.com/en-us/answers/questions/1286546/getting-started-with-sentinel-free-data-sources
+ 33. https://learn.microsoft.com/en-us/azure/sentinel/automation/use-playbook-templates
+ 34. https://learn.microsoft.com/en-us/azure/sentinel/automation/playbook-recommendations
+ 35. https://learn.microsoft.com/en-us/azure/sentinel/billing-reduce-costs
+ 36. https://github.com/birdm4nw/Cybersecurity-HomeLab
+37. https://cybercademy.org/cybersecurity-homelab-project/
+ 38. https://academic.oup.com/eurpub/article/doi/10.1093/eurpub/ckae144.436/7845092
+ 39. https://onlinelibrary.wiley.com/doi/10.1002/jrsm.1733
+ 40. https://www.tandfonline.com/doi/full/10.1080/13527258.2022.2134178
+ 41. https://ieeexplore.ieee.org/document/9563124/
+ 42. https://arxiv.org/pdf/2502.01966.pdf
+ 43. http://arxiv.org/pdf/2405.01046.pdf
+ 44. http://arxiv.org/pdf/2201.08473.pdf
+ 45. https://arxiv.org/pdf/2111.07847.pdf
+ 46. http://arxiv.org/pdf/1811.04794.pdf
+ 47. https://linkinghub.elsevier.com/retrieve/pii/S254266052300166X
+ 48. https://azure.microsoft.com/en-us/pricing/free-services
+ 49. https://digitalcommons.kennesaw.edu/cgi/viewcontent.cgi?article=1081&context=jcerp
+ 50. https://www.mdpi.com/2504-2289/8/6/55/pdf?version=1716883078
+ 51. https://www.reddit.com/r/homelab/comments/1hoxlfl/if_you_had_to_build_a_cybersecurity_oriented/
+ 52. https://www.youtube.com/watch?v=N0dEC1nuWCQ
+ 53. https://www.linkedin.com/pulse/25-free-cybersecurity-homelab-ideas-mohamed-atef-bedkf
+ 54. https://www.cybersecuritydistrict.com/top-github-projects-to-showcase-in-a-cybersecurity-portfolio/
+ 55. https://dev.to/aditya8raj/building-a-home-lab-for-cybersecurity-practice-a-step-by-step-guide-31id
+ 56. https://www.linkedin.com/posts/gmfaruk_cybersecurity-socanalyst-infosec-activity-7356463949585764352-uYW
+ B
+ 57. https://www.scribd.com/document/884883104/Cybersecurity-Home-Lab-Documentation
+ 58. https://github.com/Kwangsa19/Ketmanto-Cybersecurity-Portfolio
+ 59. https://learn.microsoft.com/en-us/rest/api/securityinsights/content-templates/list?view=rest-securityinsights-2025-09-01
+ 60. https://www.cybrary.it/blog/building-cybersecurity-lab-environment-home
+ 61. https://www.youtube.com/watch?v=p59B-I67yf8
+ 62. https://www.youtube.com/watch?v=f8SCF2UoT4c
+ 63. https://cloudsecurityguy.substack.com/p/stop-wasting-time-on-random-labs
+ 64. https://github.com/topics/soc-analysts
+ 65. https://learn.microsoft.com/en-us/answers/questions/5544020/azure-sentinel-trial
+ 66. https://burrough.org/archives/227
+ 67. https://azure.microsoft.com/en-us/pricing/offers/sentinel-microsoft-365-offer
+ 68. https://learn.microsoft.com/en-us/azure/sentinel/sentinel-service-limits
+ 69. https://www.reddit.com/r/AZURE/comments/1fqqv5w/help_with_microsoft_sentinel_setup/
+ 70. https://www.reddit.com/r/AZURE/comments/13jg97a/getting_started_with_sentinel_free_data_sources/
+ 71. https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/azure-subscription-service-limits
+ 72. https://azure.microsoft.com/en-us/pricing/details/monitor/
+ 73. https://www.mdpi.com/2072-4292/16/18/3391
+74. https://journals.asm.org/doi/10.1128/aem.01158-24
+ 75. https://ieeexplore.ieee.org/document/8394599/
+ 76. https://arxiv.org/abs/2505.03808
+ 77. https://cspub-ijcisim.org/index.php/ijcisim/article/view/1107
+ 78. https://ieeexplore.ieee.org/document/10930132/
+ 79. https://www.scs-europe.net/dlib/2025/2025-0262.html
+ 80. https://ieeexplore.ieee.org/document/10994330/
+ 81. https://ieeexplore.ieee.org/document/11099235/
+ 82. https://www.microsoft.com/en-us/security/pricing/microsoft-sentinel
+ 83. https://ieeexplore.ieee.org/document/11099294/
+ 84. http://arxiv.org/pdf/1712.07029.pdf
+ 85. https://www.mdpi.com/2071-1050/9/4/513/pdf?version=1490777547
+ 86. https://arxiv.org/pdf/1309.6000.pdf
+ 87. http://arxiv.org/pdf/1909.09848.pdf
+ 88. https://arxiv.org/pdf/1907.13612.pdf
+ 89. http://arxiv.org/pdf/2304.04131.pdf
+ 90. http://etasr.com/index.php/ETASR/article/download/1033/486
+ 91. https://docs.azure.cn/en-us/sentinel/billing
+ 92. https://www.youtube.com/watch?v=DNcYC7IFWJk
+ 93. https://azurealan.ie/2023/03/15/getting-started-with-microsoft-sentinel/
+ 94. https://www.sentinelone.com/cybersecurity-101/data-and-ai/siem-log-monitoring/
+ 95. https://www.netwitness.com/blog/siem-log-monitoring-automation-and-visibility-for-your-security/
+ 96. https://www.youtube.com/watch?v=4tEdzuUu_OU
+ 97. https://searchinform.com/articles/cybersecurity/measures/siem/analytics/log-management/log-collection/
+ 98. https://hub.metronlabs.com/microsoft-sentinel-architecture-a-step-by-step-overview-of-integration-and-log-proce
+ ssing/
+ 99. https://www.cloudoptimo.com/blog/busting-azure-free-tier-myths-avoid-the-hidden-costs/
+ 100. https://github.com/noodlemctwoodle/pf-azure-sentinel
+ 101. https://ieeexplore.ieee.org/document/10515421/
+ 102. https://ieeexplore.ieee.org/document/10758695/
+ 103. https://ieeexplore.ieee.org/document/8866971/
+ 104. https://digiverse.chula.ac.th/Info/item/dc:47531
+ 105. https://ieeexplore.ieee.org/document/10480289/
+ 106. https://journalwjaets.com/node/1142
+ 107. https://ijsrm.net/index.php/ijsrm/article/view/6092
+ 108. http://tacs.ipt.kpi.ua/article/view/209465
+ 109. https://ijsrem.com/download/detecting-floating-marine-macro-litter-fmml-using-deep-learning-models/
+ 110. https://www.cambridge.org/core/product/identifier/S0924933824009714/type/journal_article
+ 111. https://arxiv.org/pdf/2401.12443.pdf
+112. 
+http://arxiv.org/pdf/2412.16693.pdf
+ 113. 
+114. 
+115. 
+116. 
+117. 
+118. 
+119. 
+120. 
+121. 
+122. 
+123. 
+124. 
+125. 
+126. 
+127. 
+128. 
+129. 
+130. 
+https://www.mdpi.com/1424-8220/24/16/5118/pdf?version=1723216189
+ http://arxiv.org/pdf/1903.08159.pdf
+ https://arxiv.org/pdf/2502.02337.pdf
+ http://arxiv.org/pdf/1806.09339.pdf
+ https://learn.microsoft.com/en-us/azure/sentinel/sentinel-hunting-rules-creation
+ https://learn.microsoft.com/en-us/azure/sentinel/watchlists-queries
+ https://docs.azure.cn/en-us/sentinel/hunting
+ https://discuss.elastic.co/t/eql-detection-rule-issues/376641
+ https://learn.microsoft.com/en-us/defender-xdr/custom-detection-rules
+ https://learn.microsoft.com/en-us/azure/azure-monitor/reference/queries/securityevent
+ https://www.youtube.com/watch?v=A4S-aHL7J1U
+ https://www.reddit.com/r/AZURE/comments/109wwc4/kql_sentinel_query_a_user_log_onoff_activity_for/
+ https://ieeexplore.ieee.org/document/10306937/
+ https://arxiv.org/abs/2405.08125
+ https://neust.journalintellect.com/quest/article/view/14
+ https://journals.sagepub.com/doi/10.1177/10848223241244480
+ https://www.designsociety.org/publication/46779/LINKING+A+LAB+ON+PROTOTYPING+FOR+ENGINEERING
+ +STUDENTS+WITH+ITS+‘DIGITAL+LEARNING+ENVIRONMENT+TWIN’
+ https://journals.iucr.org/paper?S0108767313097225
