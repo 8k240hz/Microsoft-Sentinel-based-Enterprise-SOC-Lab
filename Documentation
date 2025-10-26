@@ -1,0 +1,1213 @@
+Building a Zero-Cost Enterprise SOC Lab with Microsoft Sentinel and Azure
+
+Part 1: Strategic Foundation - Architecting a SOC Lab on a Zero-Dollar Budget
+The successful construction and operation of this Security Operations Center (SOC) lab are predicated not just on technical execution, but on a rigorous adherence to financial constraints. The Azure free offerings provide a powerful platform for learning and experimentation, but they are not a sandboxed environment with hard limits. Instead, they function as a pay-as-you-go subscription with temporary credits and service quotas. Exceeding these quotas results in immediate, and often unexpected, real-world costs. Therefore, this lab serves a dual purpose: it is both a technical exercise in deploying a cloud-native Security Information and Event Management (SIEM) and a practical training ground for Security FinOps—the discipline of managing cloud costs within a security context. Mastering the principles of cost management is not a prerequisite for this lab; it is a core learning objective.
+
+1.1 Deconstructing the Azure Free Offering: A Multi-Layered Approach
+The Azure free account is a composite of three distinct entitlements, each with its own rules and limitations. A nuanced understanding of these layers is essential to avoid incurring charges.
+
+The 30-Day/$200 Credit
+Upon creating a new Azure account, new customers receive a $200 credit that is valid for the first 30 days. This credit functions as a burn-down resource, allowing for experimentation with services that fall outside the standard free tiers. It is crucial to understand that this credit is time-bound; any unused portion is forfeited after 30 days. For this lab, the credit provides a buffer for any initial, minor configuration mistakes or for brief use of non-free services during setup. Once the credit is exhausted or the 30-day period ends, the subscription automatically transitions to a pay-as-you-go model unless explicitly canceled.
+
+The 12-Month Free Services
+For the first 12 months, a new Azure account gains access to a limited quantity of popular services. The services most relevant to this SOC lab include :
+
+Virtual Machines: 750 hours per month each of B1s (Windows or Linux), B2pts v2 (Arm-based), and B2ats v2 (AMD-based) burstable VMs. A common misconception is that this allowance applies to each VM instance. In reality, the 750 hours represent a shared pool across all B1s VMs running in the subscription. For example, running two B1s VMs continuously for a month would consume approximately 2×24×30=1440 hours, far exceeding the free limit and resulting in charges for the overage.
+
+Storage: The free tier includes specific amounts of Blob Storage and Managed Disks. For VMs, this typically translates to two P6 SSDs (64 GB each) for 12 months.
+
+Networking: 15 GB of outbound data transfer per month is included. While inbound data transfer is generally free, outbound traffic beyond this limit will incur costs.
+
+"Always Free" Services
+A subset of Azure services remains free indefinitely, albeit with strict monthly quotas. While not all are central to this initial lab build, they offer avenues for future cost-free expansion. These include services like Azure Functions (1 million requests/month) and a limited tier of Azure SQL Database, which could be used to build custom automation or data enrichment workflows.
+
+1.2 Maximizing the Microsoft Sentinel 31-Day Free Trial
+Microsoft Sentinel's free trial is distinct from the Azure free account and has its own set of rules. It is enabled on a per-Log Analytics Workspace basis.
+
+The 10 GB/Day Ingestion Limit
+The cornerstone of the Sentinel trial is the waiver of charges for the first 10 GB of data ingested per day for 31 days. This waiver applies to both the Log Analytics data ingestion cost and the Microsoft Sentinel analysis cost. This daily limit is a hard cap and does not roll over; unused capacity from one day cannot be applied to the next. The 10 GB/day constraint necessitates a strategic approach to data collection. It is not feasible to simply ingest all available logs from all sources. Instead, a threat-modeling mindset is required to prioritize the most valuable security data, focusing on logs that provide high-fidelity signals for threat detection while filtering out noise. This process transforms data ingestion from a simple configuration task into a strategic exercise in balancing security visibility with cost management—a fundamental skill for any security architect.
+
+Post-Trial Cost Implications
+After the 31-day trial expires, the workspace will immediately begin accruing charges at standard pay-as-you-go rates for both Log Analytics and Sentinel. These costs can be significant, especially if data ingestion is not carefully managed. It is imperative to either deprovision all lab resources before the trial ends or be prepared to transition to a paid model.
+
+Free Data Sources
+A critical optimization strategy is to leverage data sources that are ingested into Sentinel free of charge and do not count against the 10 GB/day trial limit. These include :
+
+Azure Activity Logs
+
+Office 365 Audit Logs (including SharePoint, Exchange, and Teams)
+
+Microsoft Defender for Cloud alerts
+  
+1.3 The Cost Management Discipline: Your Most Important Lab Tool
+Given that Azure does not enforce a hard boundary at the free tier level, active cost management is the single most important discipline for this project's success.
+
+Proactive Monitoring and Budget Alerts
+The Azure portal provides a Cost Management + Billing blade, which is the central tool for tracking free service usage and credit burn-down. A non-negotiable first step after creating the Azure account is to configure a budget and set up spending alerts. This can be done by creating a budget (e.g., $1) and configuring alert notifications to be sent via email when consumption reaches a certain percentage of that budget (e.g., 80% and 100%). This provides an essential early warning system to prevent "bill shock".
+
+The "Deallocated" vs. "Stopped" State
+A frequent and costly mistake for new Azure users is misunderstanding the power states of a virtual machine. A VM in a "Stopped" state from within the guest OS still has its compute and storage resources allocated in the Azure fabric and continues to incur charges for those resources. To stop compute charges, the VM must be placed in a "Stopped (deallocated)" state, which can only be done from the Azure portal, CLI, or PowerShell. This releases the allocated compute resources back to Azure. This distinction is the primary mechanism for managing VM costs in a lab environment that is not in continuous use.
+
+Resource Tagging
+As a best practice, all resources created for this lab should be tagged consistently. Applying a tag such as Lab: SOC-Sentinel to every resource group, VM, VNet, and storage account allows for easy filtering and cost analysis within the Cost Management blade, ensuring clear visibility into the lab's financial footprint.
+
+Service	Free Limit	Duration	Key Constraint / Gotcha
+Microsoft Sentinel	10 GB/day data ingestion & analysis	31 Days	Limit is per day and does not roll over. Exceeding it incurs PAYG costs.
+Log Analytics Retention	90 days	Always	Retention beyond 90 days is charged.
+Azure VMs (B1s)	750 hours/month (total pool)	12 Months	The 750 hours are shared across all B1s VMs. Running multiple VMs will consume the allowance faster.
+Managed Disks	2x 64 GB P6 SSDs	12 Months	Exceeding this size or quantity incurs costs.
+Outbound Data Transfer	15 GB/month	Always	Inbound data is free, but outbound traffic beyond 15 GB is charged.
+Azure Credit	$200	30 Days	Credit is lost if not used within 30 days. Account converts to PAYG after credit is used or 30 days pass.
+Part 2: Lab Architecture and Network Infrastructure Deployment
+The foundation of any enterprise SOC is a well-designed and defensible network architecture. This lab will implement a classic hub-and-spoke topology, a standard design pattern in cloud networking. The central Azure Virtual Network (VNet) will act as the hub, containing our network security appliance. The endpoint VMs will reside in a separate spoke subnet, with all traffic forced through the security appliance for inspection and logging.
+
+2.1 Architectural Overview
+The lab's network consists of a single VNet segmented into three distinct subnets. A pfSense firewall, deployed as a Network Virtual Appliance (NVA), will serve as the central security choke point. All traffic originating from the endpoint subnet will be forced through the pfSense NVA before it can reach any other destination, including the internet. This architecture ensures that all network traffic from our log-generating assets is captured and can be analyzed in Microsoft Sentinel.
+
+2.2 Virtual Network (VNet) and Subnet Design
+The first step is to create the virtual network that will host all lab components.
+
+In the Azure portal, search for and select "Virtual networks".
+
+Click "Create" and provide the following details:
+
+Subscription: Select your Azure Free Trial subscription.
+
+Resource group: Create a new resource group named rg-soc-lab.
+
+Name: vnet-soc-lab.
+
+Region: Choose a region that supports B-series VMs (e.g., East US).
+
+On the "IP Addresses" tab, configure the address space:
+
+IPv4 address space: 10.10.0.0/16.
+
+Under "Subnets", create the following three subnets:
+
+WAN Subnet:
+
+Name: snet-pfsense-wan
+
+Address range: 10.10.1.0/24
+
+LAN Subnet:
+
+Name: snet-pfsense-lan
+
+Address range: 10.10.2.0/24
+
+Endpoint Subnet:
+
+Name: snet-endpoints
+
+Address range: 10.10.3.0/24
+
+Proceed to "Review + create" and then "Create".
+
+2.3 Deploying the pfSense Community Edition Firewall
+To adhere to the zero-cost constraint, deploying a paid firewall appliance from the Azure Marketplace is not an option. Instead, a custom image of the pfSense Community Edition will be prepared locally and uploaded to Azure. While this process is more complex than a marketplace deployment, it provides an invaluable, real-world lesson in cloud migration and hybrid networking principles, teaching the fundamental skill of "lifting and shifting" an on-premises virtual appliance into the cloud.
+
+Step 1: Preparing the pfSense Image Locally
+This step requires a local hypervisor such as Microsoft Hyper-V or Oracle VirtualBox.
+
+Download pfSense: Download the latest pfSense Community Edition ISO. Choose "amd64 (64-bit)" for the architecture and "DVD Image (ISO) Installer" for the installer type.
+
+Create the Virtual Machine:
+
+In your hypervisor, create a new Generation 1 virtual machine. Azure does not support Generation 2 VMs for custom images created this way.
+
+Create a new virtual hard disk. Crucially, the format must be VHD (not VHDX) and the type must be Fixed size. A size of 20 GB is sufficient.
+
+Attach two network adapters to the VM.
+
+Mount the downloaded pfSense ISO to the virtual DVD drive.
+
+Install and Configure pfSense:
+
+Start the VM and proceed through the pfSense installation, accepting the defaults.
+
+After installation and reboot (unmount the ISO), you will be prompted to assign interfaces. Assign the first network adapter (hn0) as the WAN interface and the second (hn1) as the LAN interface. Configure both to get their IP addresses via DHCP.
+
+From the pfSense console menu, enable the Secure Shell (sshd).
+
+Connect to the pfSense shell via SSH (the default credentials are admin/pfsense).
+
+Install the required packages for Azure compatibility :
+
+Shell
+pkg update
+pkg install -y sudo bash git
+Install the Azure Linux Agent. This agent is necessary for the VM to communicate with the Azure fabric :
+
+Shell
+git clone https://github.com/Azure/WALinuxAgent.git
+cd WALinuxAgent
+git checkout v2.2.34 # Use a known stable version
+python setup.py install
+ln -sf /usr/local/sbin/waagent /usr/sbin/waagent
+Enable the serial console for Azure diagnostics :
+
+Shell
+echo 'console="comconsole vidconsole"' >> /boot/loader.conf.local
+echo 'comconsole_speed="115200"' >> /boot/loader.conf.local
+Deprovision the VM to generalize it for use as an image :
+
+Shell
+waagent -deprovision+user -force
+Shut down the pfSense VM using option 6) Halt system from the main console menu.
+
+Step 2: Uploading the VHD to Azure
+Create a Storage Account: In the Azure portal, create a new storage account within the rg-soc-lab resource group.
+
+Upload the VHD: Use the Azure Storage Explorer tool or the Azure CLI to upload the VHD file you created locally to a new blob container within the storage account.
+
+Step 3: Creating a Managed Image
+In the Azure portal, search for "Images" and click "Create".
+
+Configure the image:
+
+Resource group: rg-soc-lab.
+
+Name: img-pfsense-ce.
+
+OS type: Linux.
+
+VM generation: Gen 1.
+
+Storage blob: Browse to the VHD file you uploaded in the previous step.
+
+Click "Review + create" and then "Create".
+
+Step 4: Deploying the pfSense VM from the Custom Image
+Navigate to the img-pfsense-ce image you just created and click "Create VM".
+
+Basics Tab:
+
+Virtual machine name: vm-pfsense-nva.
+
+Size: Standard_B1s.
+
+Authentication type: Password (pfSense uses its own internal user management). Set a temporary admin username and password.
+
+Disks Tab: Leave defaults.
+
+Networking Tab: This is a critical step.
+
+Virtual network: Select vnet-soc-lab.
+
+Subnet: Select snet-pfsense-wan (10.10.1.0/24). This will create the primary NIC.
+
+Public IP: Create a new static public IP.
+
+NIC network security group: None.
+
+Review and create the VM.
+
+Attach the LAN NIC:
+
+Once the VM is deployed, stop (deallocate) it.
+
+Navigate to the VM's "Networking" settings and click "Attach network interface".
+
+Click "Create network interface". Name it nic-pfsense-lan, select the snet-pfsense-lan (10.10.2.0/24) subnet, and ensure it has no public IP. Click "Create" and then "OK" to attach it.
+
+Enable IP Forwarding:
+
+Navigate to the nic-pfsense-lan network interface resource.
+
+Under "Settings", go to "IP configurations".
+
+Set "IP forwarding" to Enabled and save. This allows the NIC to receive traffic not specifically destined for its own IP address, which is essential for it to function as a router.
+
+Start the vm-pfsense-nva VM.
+
+2.4 Configuring Routing and Network Security
+Deploying the firewall is not enough; network traffic must be explicitly directed through it. By default, Azure's networking fabric allows subnets within the same VNet to communicate directly, bypassing any security appliances. The User-Defined Route (UDR) is the critical component that enforces the desired traffic flow, transforming a collection of subnets into a defensible network architecture.
+
+Create a Route Table:
+
+In the Azure portal, search for "Route tables" and click "Create".
+
+Resource group: rg-soc-lab.
+
+Name: rt-endpoints-to-pfsense.
+
+Add a Route:
+
+Open the newly created route table and go to "Routes".
+
+Click "Add".
+
+Route name: default-to-nva.
+
+Address prefix destination: 0.0.0.0/0 (this captures all outbound traffic).
+
+Next hop type: Virtual appliance.
+
+Next hop address: Enter the private IP address of the nic-pfsense-lan interface (e.g., 10.10.2.4).
+
+Associate the Route Table:
+
+In the route table, go to "Subnets" and click "Associate".
+
+Select the vnet-soc-lab virtual network and the snet-endpoints subnet.
+
+Click "OK".
+
+This configuration ensures that any traffic leaving the snet-endpoints subnet, regardless of its destination, is first sent to the pfSense firewall for inspection. The actual firewall rules (allow/deny) will be configured within the pfSense web interface itself, which is now accessible via its public IP address on the WAN interface.
+
+Part 3: Endpoint Deployment and Configuration
+With the network infrastructure and security appliance in place, the next phase is to deploy the assets that will generate the security telemetry for the SOC lab. This involves creating a fleet of Windows and Linux virtual machines that will serve as simulated servers and workstations.
+
+3.1 Deploying Windows Server 2022 Virtual Machines (5 Instances)
+These VMs will simulate a typical Windows server environment.
+
+In the Azure portal, navigate to "Virtual machines" and click "Create" > "Azure virtual machine".
+
+Configure the VM with the following settings for each of the five instances (e.g., vm-win-01, vm-win-02, etc.) :
+
+Resource group: rg-soc-lab.
+
+Image: Windows Server 2022 Datacenter: Azure Edition - x64 Gen2.
+
+Size: Standard_B1s. This is critical to stay within the 750-hour free monthly allowance.
+
+Administrator account: Create a username and password.
+
+Inbound port rules: Set "Public inbound ports" to None. Access will be managed through a bastion host or via pfSense.
+
+On the "Networking" tab:
+
+Virtual network: vnet-soc-lab.
+
+Subnet: snet-endpoints (10.10.3.0/24).
+
+Public IP: None.
+
+Proceed through the remaining tabs with default settings, then "Review + create" and "Create". Repeat this process for all five Windows VMs.
+
+3.2 Deploying Ubuntu Server 22.04 LTS Virtual Machines (3 Instances)
+These VMs will represent the Linux server estate.
+
+Follow the same initial steps to create a new Azure virtual machine.
+
+Configure the VM with the following settings for each of the three instances (e.g., vm-lin-01, vm-lin-02, etc.) :
+
+Resource group: rg-soc-lab.
+
+Image: Ubuntu Server 22.04 LTS - Gen2.
+
+Size: Standard_B1s.
+
+Authentication type: SSH public key. This is a security best practice over password authentication. Select "Generate new key pair" and provide a key pair name. Download the private key and store it securely; it will be required to connect to the VMs.
+
+On the "Networking" tab:
+
+Virtual network: vnet-soc-lab.
+
+Subnet: snet-endpoints (10.10.3.0/24).
+
+Public IP: None.
+
+NIC network security group: Basic.
+
+Public inbound ports: Allow selected ports.
+
+Select inbound ports: SSH (22). Important: After deployment, this rule must be modified in the Network Security Group to only allow SSH traffic from the pfSense LAN subnet, not from Any.
+
+Proceed to create the VM. Repeat for all three Linux VMs.
+
+3.3 Initial Endpoint Configuration
+To generate meaningful security logs, the default logging policies on the endpoints must be enhanced.
+
+Windows Configuration
+On each Windows VM, the local audit policy must be configured to generate the necessary security event logs. This can be done using the Local Group Policy Editor (gpedit.msc). Navigate to Computer Configuration > Windows Settings > Security Settings > Advanced Audit Policy Configuration > System Audit Policies and enable auditing (for both Success and Failure) for the following key categories:
+
+Account Logon: Audit Credential Validation.
+
+Account Management: Audit User Account Management, Audit Security Group Management.
+
+Logon/Logoff: Audit Logon, Audit Account Lockout.
+
+Object Access: Audit File Share.
+
+Process Tracking: Audit Process Creation.
+
+System: Audit Security System Extension.
+
+Linux Configuration
+The default rsyslog configuration on Ubuntu is generally sufficient for initial log collection. The primary configuration will happen within the Data Collection Rule in Azure Monitor, which will specify which facilities and severity levels to collect.
+
+Hostname	Operating System	Role	Private IP Address	Subnet
+vm-pfsense-nva	pfSense CE	Firewall / NVA	WAN: 10.10.1.4, LAN: 10.10.2.4	snet-pfsense-wan, snet-pfsense-lan
+vm-win-01	Windows Server 2022	Endpoint	10.10.3.4	snet-endpoints
+vm-win-02	Windows Server 2022	Endpoint	10.10.3.5	snet-endpoints
+vm-win-03	Windows Server 2022	Endpoint	10.10.3.6	snet-endpoints
+vm-win-04	Windows Server 2022	Endpoint	10.10.3.7	snet-endpoints
+vm-win-05	Windows Server 2022	Endpoint	10.10.3.8	snet-endpoints
+vm-lin-01	Ubuntu Server 22.04	Endpoint / Syslog Collector	10.10.3.9	snet-endpoints
+vm-lin-02	Ubuntu Server 22.04	Endpoint	10.10.3.10	snet-endpoints
+vm-lin-03	Ubuntu Server 22.04	Endpoint	10.10.3.11	snet-endpoints
+Note: Private IP addresses are assigned dynamically by Azure and may differ in your deployment. The table reflects example IPs.
+
+Part 4: Building the Log Ingestion Pipeline to Microsoft Sentinel
+This phase involves constructing the data engineering pipeline that will transport security telemetry from the deployed assets into Microsoft Sentinel for analysis. The modern approach to this in Azure utilizes the Azure Monitor Agent (AMA) and Data Collection Rules (DCRs), which offer a more flexible and granular method for data collection compared to the legacy Log Analytics Agent (MMA).
+
+4.1 Onboarding Microsoft Sentinel
+In the Azure portal, search for and select "Log Analytics workspaces".
+
+Click "Create", select the rg-soc-lab resource group, provide a unique name (e.g., la-soc-lab), and choose the same region as your other resources.
+
+Once the workspace is deployed, search for and select "Microsoft Sentinel".
+
+Click "Add" and select the la-soc-lab workspace to onboard it. This will activate the 31-day free trial.
+
+4.2 The Azure Monitor Agent (AMA) and Data Collection Rules (DCRs)
+The AMA is an agent installed on VMs that gathers data. What data it gathers is defined by one or more DCRs associated with it. A DCR specifies the data source (e.g., Windows Event Logs), any transformations or filtering to be applied, and the destination (e.g., a specific Log Analytics workspace). This model allows for centralized and precise control over data ingestion.
+
+4.3 Connecting Windows Endpoints
+The key to managing costs for Windows event collection is not to ingest everything, but to surgically select only the high-value events required for threat detection. The Custom configuration option in the DCR, which uses XPath queries, is not merely an advanced feature; it is the only viable method to operate this lab within the 10 GB/day ingestion limit.
+
+In Microsoft Sentinel, navigate to "Content hub", search for and install the "Windows Security Events" solution.
+
+Navigate to "Data connectors", find the "Windows Security Events (AMA)" connector, and click "Open connector page".
+
+Click "+Create data collection rule".
+
+Basics: Give the rule a name, such as dcr-windows-security-events.
+
+Resources: Add all five Windows VMs (vm-win-01 through vm-win-05) to the scope of this rule.
+
+Collect:
+
+Instead of selecting "All Security Events" or "Common", select "Custom".
+
+This will reveal a field for XPath queries. An XPath query allows for precise filtering of events at the source, before they are sent to Log Analytics. Enter the following query to collect only the specific event IDs relevant to the KQL detections in Part 5 :
+
+XML
+Security!*]
+This single XPath expression tells the AMA to only collect events from the 'Security' log where the Event ID matches one of the specified numbers. This dramatically reduces the volume of ingested data compared to collecting all security events.
+
+Click "Review + create" to deploy the DCR. The AMA will be automatically installed on the selected VMs and configured according to this rule.
+
+4.4 Connecting Linux Endpoints
+For Linux systems, data volume is managed by selecting specific syslog facilities and minimum severity levels.
+
+In Sentinel's "Content hub", install the "Syslog" solution.
+
+Navigate to "Data connectors", find the "Syslog (AMA)" connector, and open its page.
+
+Click "+Create data collection rule".
+
+Basics: Name the rule dcr-linux-syslog.
+
+Resources: Add the three Linux VMs (vm-lin-01, vm-lin-02, vm-lin-03).
+
+Collect:
+
+Select the facilities and log levels to collect. For security monitoring, a good baseline is to collect messages from WARNING and above for the following facilities :
+
+auth
+
+authpriv
+
+cron
+
+daemon
+
+syslog
+
+user
+
+This configuration captures authentication events, service-related issues, and system messages while filtering out lower-level informational and debug messages.
+
+Click "Review + create" to deploy the DCR.
+
+4.5 Connecting the pfSense Firewall via Syslog Forwarder
+Since the AMA cannot be installed directly on the pfSense appliance, a syslog forwarder architecture is required. One of the Linux VMs (vm-lin-01) will be designated as a collector. The pattern is: pfSense -> vm-lin-01 (Syslog Collector) -> Microsoft Sentinel. This architecture is a reusable blueprint for integrating almost any network device or legacy application that supports syslog but not a direct agent installation.
+
+Step 1: Configure pfSense for Remote Logging
+Log in to the pfSense web interface using its public IP.
+
+Navigate to Status > System Logs > Settings.
+
+Scroll down to Remote Logging Options.
+
+Check the box for "Send log messages to remote syslog server".
+
+In the "Remote log servers" field, enter the private IP address of your designated Linux collector VM (e.g., 10.10.3.9) followed by the port, :514.
+
+Under "Remote Syslog Contents", check the box for Firewall Events.
+
+Click "Save".
+
+Step 2: Configure the Linux Syslog Collector (vm-lin-01)
+Allow Inbound Syslog Traffic:
+
+Navigate to the Network Security Group associated with the snet-endpoints subnet.
+
+Add a new inbound security rule to allow UDP traffic on port 514 specifically from the private IP of the pfSense LAN interface (10.10.2.4).
+
+Configure rsyslog to Listen:
+
+SSH into vm-lin-01.
+
+Edit the rsyslog configuration file: sudo nano /etc/rsyslog.conf.
+
+Uncomment the lines for UDP syslog reception to enable the server to listen for remote messages:
+
+# provides UDP syslog reception
+module(load="imudp")
+input(type="imudp" port="514")
+Restart the rsyslog service: sudo systemctl restart rsyslog.
+
+Create a DCR for the Custom pfSense Log:
+
+In Sentinel, go to "Data connectors", find "Custom Logs (AMA)", and open the page.
+
+Click "+Create data collection rule".
+
+Basics: Name it dcr-pfsense-firewall.
+
+Resources: Select only the Linux collector VM, vm-lin-01.
+
+Collect:
+
+Table name: pfSenseFirewall_CL (custom tables must end with _CL).
+
+File pattern: /var/log/syslog (This is where rsyslog on Ubuntu writes incoming remote messages by default).
+
+Transform: Add a Kusto transformation to filter for only the pfSense messages and parse them.
+
+Code snippet
+source
+
+| where ProcessName == "filterlog" | parse kind=regex SyslogMessage with * ',' rule_number:int ',' sub_rule_number:string ',' anchor:string ',' tracker:string ',' real_interface:string ',' reason:string ',' action:string ',' direction:string ',' ip_version:int ',' * | project-away SyslogMessage, ProcessName, Facility, Severity ``` This query filters for pfSense's firewall log process (filterlog) and parses the raw message into structured fields based on its known format. 4. Click "Review + create" to deploy the DCR. Data from the pfSense firewall will now flow to the collector, be picked up by the AMA, transformed, and sent to the pfSenseFirewall_CL table in Log Analytics.
+
+Part 5: Detection Engineering - Threat Hunting with KQL
+This section provides the core security logic for the SOC lab. The following Kusto Query Language (KQL) queries are designed to be used as Analytics Rules within Microsoft Sentinel to detect specific adversary tactics and techniques, mapped to the MITRE ATT&CK® framework. Each query is built upon the specific data sources configured in the previous part.
+
+5.1 Introduction to KQL for Threat Hunting
+KQL is a read-only query language used to perform data analysis on large volumes of data. Its syntax is structured as a pipeline, where data flows from one operator to the next. Key operators include where for filtering, summarize for aggregation, extend for creating new columns, project for selecting columns, and join for correlating data between different tables.
+
+5.2 Tactic: Credential Access (MITRE TA0006)
+This tactic involves techniques for stealing account names and passwords.
+
+Query 1: Windows RDP Brute Force Attack
+Description: Detects a high number of failed RDP logon attempts (Logon Type 3) from a single source IP to a single host, indicating a potential brute force attack.
+
+MITRE Technique: T1110.001 - Brute Force: Password Guessing.
+
+Data Source: SecurityEvent (Windows).
+
+KQL Query:
+
+Code snippet
+let threshold = 10;
+let timeWindow = 15m;
+SecurityEvent
+
+| where TimeGenerated > ago(timeWindow) | where EventID == 4625 and LogonType == 3 | where SubStatus in ("0xc000006a", "0xc0000064") // Bad password or unknown user | summarize FailedAttempts = count() by IpAddress, Computer, TargetAccount | where FailedAttempts > threshold ```
+
+Query 2: Linux SSH Brute Force Attack
+Description: Detects numerous "Failed password" messages in syslog from a single source IP targeting a Linux host.
+
+MITRE Technique: T1110.001 - Brute Force: Password Guessing.
+
+Data Source: Syslog (Linux).
+
+KQL Query:
+
+Code snippet
+let threshold = 10;
+let timeWindow = 15m;
+Syslog
+
+| where TimeGenerated > ago(timeWindow) | where SyslogMessage has "Failed password for" | extend SrcIpAddress = extract(@"from (\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3})", 1, SyslogMessage) | summarize FailedAttempts = count() by SrcIpAddress, Computer | where FailedAttempts > threshold ```
+
+Query 3: Password Spraying Attempt
+Description: Identifies a single source IP attempting to authenticate against many different user accounts with failed attempts, a hallmark of password spraying.
+
+MITRE Technique: T1110.003 - Brute Force: Password Spraying.
+
+Data Source: SecurityEvent (Windows).
+
+KQL Query:
+
+Code snippet
+let timeWindow = 30m;
+let accountThreshold = 5;
+SecurityEvent
+
+| where TimeGenerated > ago(timeWindow) | where EventID == 4625 | summarize dcount(TargetAccount) by IpAddress | where dcount_TargetAccount > accountThreshold ```
+
+Query 4: Firewall Blocks from High-Reputation Threat Intel Feeds
+Description: Correlates blocked traffic from the pfSense firewall logs with Microsoft's threat intelligence platform to identify communications with known malicious IPs.
+
+MITRE Technique: T1102 - Web Service.
+
+Data Sources: pfSenseFirewall_CL, ThreatIntelligenceIndicator.
+
+KQL Query:
+
+Code snippet
+let firewallBlocks = pfSenseFirewall_CL
+
+| where action == "block" | extend SrcIpAddress = source_address; ThreatIntelligenceIndicator
+
+| where isnotempty(NetworkIP) | join kind=innerunique (firewallBlocks) on $left.NetworkIP == $right.SrcIpAddress | project TimeGenerated, Description, ActivityGroupNames, IndicatorId, ThreatType, Url, ExpirationDateTime, ConfidenceScore, SrcIpAddress, destination_address ```
+
+5.3 Tactic: Privilege Escalation (MITRE TA0004)
+This tactic involves actions that allow an adversary to gain higher-level permissions on a system.
+
+Query 5: User Added to Privileged Group
+Description: Detects when a user account is added to a high-privilege local or domain group.
+
+MITRE Technique: T1078 - Valid Accounts.
+
+Data Source: SecurityEvent (Windows).
+
+KQL Query:
+
+Code snippet
+let privilegedGroups = dynamic();
+SecurityEvent
+
+| where EventID in (4732, 4728) // Member added to local/global security group | where TargetUserName in (privilegedGroups) | project TimeGenerated, Activity, Computer, MemberName, TargetUserName, SubjectUserName ```
+
+Query 6: Special Privileges Assigned to Logon
+Description: Alerts when a logon session is assigned powerful administrative privileges, which can indicate abuse of tokens or runas.
+
+MITRE Technique: T1134 - Access Token Manipulation.
+
+Data Source: SecurityEvent (Windows).
+
+KQL Query:
+
+Code snippet
+SecurityEvent
+
+| where EventID == 4672 // Special privileges assigned to new logon | project TimeGenerated, Computer, Account, SubjectUserName, PrivilegeList ```
+
+Query 7: Suspicious New Service Creation
+Description: Looks for the creation of a new Windows service, a common persistence and privilege escalation technique.
+
+MITRE Technique: T1543.003 - Create or Modify System Process: Windows Service.
+
+Data Source: SecurityEvent (Windows).
+
+KQL Query:
+
+Code snippet
+SecurityEvent
+
+| where EventID == 7045 // A new service was installed | project TimeGenerated, Computer, ServiceName, ServiceFileName, ServiceType, ServiceStartType, AccountName | where ServiceFileName has_any ("powershell.exe", "cmd.exe", "rundll32.exe") or ServiceFileName contains "Temp" ```
+
+Query 8: Suspicious Sudo Activity on Linux
+Description: Hunts for sudo commands in syslog that execute sensitive commands or are run by unexpected users.
+
+MITRE Technique: T1548.003 - Abuse Elevation Control Mechanism: Sudo and Sudo Caching.
+
+Data Source: Syslog (Linux).
+
+KQL Query:
+
+Code snippet
+Syslog
+
+| where ProcessName == "sudo" and SyslogMessage has "COMMAND=" | parse SyslogMessage with * "USER=" user " ; " * "COMMAND=" command | project TimeGenerated, Computer, user, command ```
+
+5.4 Tactic: Lateral Movement (MITRE TA0008)
+This tactic involves techniques adversaries use to move through the environment after gaining initial access.
+
+Query 9: Remote Logon with Explicit Credentials
+Description: Detects the use of tools like runas or PsExec where a user on one machine authenticates to another using different credentials.
+
+MITRE Technique: T1550.002 - Use Alternate Authentication Material: Pass the Hash.
+
+Data Source: SecurityEvent (Windows).
+
+KQL Query:
+
+Code snippet
+SecurityEvent
+
+| where EventID == 4648 // A logon was attempted using explicit credentials | where IpAddress!= "127.0.0.1" and IpAddress!= "::1" | project TimeGenerated, Computer, Account, TargetServerName, IpAddress, ProcessName ```
+
+Query 10: Access to Administrative Shares
+Description: Monitors for access to default administrative shares (e.g., C$, ADMIN$), a common method for staging malicious tools.
+
+MITRE Technique: T1021.002 - Remote Services: SMB/Windows Admin Shares.
+
+Data Source: SecurityEvent (Windows).
+
+KQL Query:
+
+Code snippet
+SecurityEvent
+
+| where EventID == 5145 // A network share object was checked to see if client can be granted desired access | where ShareName has_any ("\\\ADMIN$", "\\\C$", "\\*\IPC$") | project TimeGenerated, Computer, Account, IpAddress, ShareName, RelativeTargetName ```
+
+Query 11: Cross-Server RDP Connection
+Description: Identifies when a server establishes an RDP connection to another server in the environment, which is often anomalous behavior outside of specific administrative tasks.
+
+MITRE Technique: T1021.001 - Remote Services: Remote Desktop Protocol.
+
+Data Source: SecurityEvent (Windows).
+
+KQL Query:
+
+Code snippet
+SecurityEvent
+
+| where EventID == 4624 and LogonType == 10 // RemoteInteractive Logon | where Account!endswith "$" // Exclude machine accounts | project TimeGenerated, Computer, TargetAccount=Account, SourceIP=IpAddress ```
+
+Query 12: Firewall Log of Internal Port Scanning
+Description: Uses pfSense firewall logs to detect a single internal IP connecting to many different ports on another internal IP, indicative of a port scan.
+
+MITRE Technique: T1046 - Network Service Discovery.
+
+Data Source: pfSenseFirewall_CL.
+
+KQL Query:
+
+Code snippet
+let timeWindow = 15m;
+let portThreshold = 20;
+pfSenseFirewall_CL
+
+| where TimeGenerated > ago(timeWindow) | where source_address startswith "10.10." and destination_address startswith "10.10." | summarize dcount(destination_port) by source_address, destination_address, bin(TimeGenerated, 5m) | where dcount_destination_port > portThreshold ```
+
+5.5 Tactic: Execution (MITRE TA0002)
+This tactic involves techniques that result in adversary-controlled code running on a local or remote system.
+
+Query 13: PowerShell with Encoded Command
+Description: Detects obfuscated PowerShell payloads executed via the command line.
+
+MITRE Technique: T1059.001 - Command and Scripting Interpreter: PowerShell.
+
+Data Source: SecurityEvent (Windows).
+
+KQL Query:
+
+Code snippet
+SecurityEvent
+
+| where EventID == 4688 and (Process contains "powershell.exe") | where CommandLine has_any ("-enc", "-encodedcommand", "-e") | project TimeGenerated, Computer, SubjectUserName, Process, CommandLine ```
+
+Query 14: PowerShell Download Cradle
+Description: Hunts for common PowerShell commands used to download remote files, a frequent method for retrieving second-stage payloads.
+
+MITRE Technique: T1059.001 - Command and Scripting Interpreter: PowerShell.
+
+Data Source: SecurityEvent (Windows).
+
+KQL Query:
+
+Code snippet
+SecurityEvent
+
+| where EventID == 4688 and (Process contains "powershell.exe") | where CommandLine has_any ("Invoke-WebRequest", "DownloadString", "DownloadFile", "IEX") | project TimeGenerated, Computer, SubjectUserName, Process, CommandLine ```
+
+Query 15: Living-off-the-Land Binaries (LOLBins) Execution
+Description: Detects the execution of legitimate Windows binaries often abused by attackers to perform malicious actions.
+
+MITRE Technique: T1218 - Signed Binary Proxy Execution.
+
+Data Source: SecurityEvent (Windows).
+
+KQL Query:
+
+Code snippet
+let lolbins = dynamic(["certutil.exe", "bitsadmin.exe", "regsvr32.exe", "mshta.exe"]);
+SecurityEvent
+
+| where EventID == 4688 | where Process in (lolbins) | where (Process == "certutil.exe" and CommandLine has_any ("-urlcache", "-split", "-f")) or (Process == "bitsadmin.exe" and CommandLine has "/transfer") or (Process == "regsvr32.exe" and CommandLine has "/i:http")
+
+| project TimeGenerated, Computer, SubjectUserName, Process, CommandLine ```
+
+Query 16: Suspicious Linux Shell Commands
+Description: Searches syslog for shell commands involving downloading and executing scripts directly from the web.
+
+MITRE Technique: T1059.004 - Command and Scripting Interpreter: Unix Shell.
+
+Data Source: Syslog (Linux).
+
+KQL Query:
+
+Code snippet
+Syslog
+
+| where ProcessName == "sudo" and SyslogMessage has "COMMAND=" | where SyslogMessage has_any ("wget", "curl") and SyslogMessage has_any ("| sh", "| bash") | project TimeGenerated, Computer, SyslogMessage ```
+
+Rule Name	MITRE ATT&CK Tactic/Technique	Target Data Source(s)
+Windows RDP Brute Force Attack	TA0006 / T1110.001	SecurityEvent
+Linux SSH Brute Force Attack	TA0006 / T1110.001	Syslog
+Password Spraying Attempt	TA0006 / T1110.003	SecurityEvent
+Firewall Blocks from Threat Intel	TA0011 / T1102	pfSenseFirewall_CL, ThreatIntelligenceIndicator
+User Added to Privileged Group	TA0004 / T1078	SecurityEvent
+Special Privileges Assigned to Logon	TA0004 / T1134	SecurityEvent
+Suspicious New Service Creation	TA0003, TA0004 / T1543.003	SecurityEvent
+Suspicious Sudo Activity on Linux	TA0004 / T1548.003	Syslog
+Remote Logon with Explicit Credentials	TA0008 / T1550.002	SecurityEvent
+Access to Administrative Shares	TA0008 / T1021.002	SecurityEvent
+Cross-Server RDP Connection	TA0008 / T1021.001	SecurityEvent
+Firewall Log of Internal Port Scanning	TA0007 / T1046	pfSenseFirewall_CL
+PowerShell with Encoded Command	TA0002 / T1059.001	SecurityEvent
+PowerShell Download Cradle	TA0002 / T1059.001	SecurityEvent
+LOLBins Execution	TA0002 / T1218	SecurityEvent
+Suspicious Linux Shell Commands	TA0002 / T1059.004	Syslog
+Part 6: Operational Visibility - Building the SOC Monitoring Dashboard
+A SOC's effectiveness is greatly enhanced by a centralized dashboard that provides at-a-glance visibility into the security posture of the environment. Microsoft Sentinel Workbooks are the native tool for creating such interactive and customizable dashboards, allowing analysts to visualize data, identify trends, and pivot to deeper investigations.
+
+6.1 Introduction to Microsoft Sentinel Workbooks
+Workbooks are built on Azure Monitor Workbooks and provide a flexible canvas for data analysis. They combine text, KQL queries, metrics, and parameters to create rich, interactive reports. For this lab, a new workbook will be created from scratch to serve as the primary SOC monitoring dashboard.
+
+6.2 Creating a New Workbook from Scratch
+In Microsoft Sentinel, navigate to Threat management > Workbooks.
+
+Click Add workbook. This will open a new, blank workbook in edit mode.
+
+Select Edit from the top toolbar to begin adding components.
+
+6.3 Building the Dashboard Widgets
+Each widget on the dashboard is powered by a KQL query. The following sections provide the query and recommended visualization for each component of the lab dashboard.
+
+Widget 1: Failed Login Trends (Time Chart)
+Purpose: To visualize the volume of failed login attempts over time, helping to spot anomalies and brute force campaigns.
+
+Steps:
+
+Click "Add" and select "Add query".
+
+Enter the following KQL query:
+
+Code snippet
+let windows_failures = SecurityEvent | where EventID == 4625;
+let linux_failures = Syslog | where SyslogMessage has "Failed password for";
+union windows_failures, linux_failures
+
+| summarize count() by bin(TimeGenerated, 1h) | render timechart ``` 3. Set "Visualization" to "Time chart".
+
+Widget 2: Top 10 Attacked User Accounts (Bar Chart)
+Purpose: To identify which user accounts are being most frequently targeted by failed login attempts.
+
+Steps:
+
+Add a new query.
+
+Enter the KQL:
+
+Code snippet
+SecurityEvent
+
+| where EventID == 4625 | summarize Attempts = count() by TargetAccount | top 10 by Attempts desc ``` 3. Set "Visualization" to "Bar chart".
+
+Widget 3: Top 10 Attacker Source IPs (Bar Chart)
+Purpose: To identify the most active source IP addresses generating failed logins and firewall blocks.
+
+Steps:
+
+Add a new query.
+
+Enter the KQL:
+
+Code snippet
+let failed_logins = SecurityEvent | where EventID == 4625 | project IpAddress;
+let firewall_blocks = pfSenseFirewall_CL | where action == "block" | project IpAddress = source_address;
+union failed_logins, firewall_blocks
+
+| where isnotempty(IpAddress) and IpAddress!in ("127.0.0.1", "::1") | summarize Events = count() by IpAddress | top 10 by Events desc ``` 3. Set "Visualization" to "Bar chart".
+
+Widget 4: Top 10 Attacked Systems (Grid)
+Purpose: To show which machines are receiving the most failed login attempts.
+
+Steps:
+
+Add a new query.
+
+Enter the KQL:
+
+Code snippet
+SecurityEvent
+
+| where EventID == 4625 | summarize Attempts = count() by Computer | top 10 by Attempts desc ``` 3. Set "Visualization" to "Grid".
+
+Widget 5: Firewall Action Breakdown (Pie Chart)
+Purpose: To provide a high-level overview of the ratio of allowed versus blocked traffic by the pfSense firewall.
+
+Steps:
+
+Add a new query.
+
+Enter the KQL:
+
+Code snippet
+pfSenseFirewall_CL
+
+| summarize count() by action | render piechart ``` 3. Set "Visualization" to "Pie chart".
+
+Widget 6: Alert Severity Overview (Donut Chart)
+Purpose: To display the distribution of triggered alerts by severity.
+
+Steps:
+
+Add a new query.
+
+Enter the KQL:
+
+Code snippet
+SecurityAlert
+
+| summarize count() by AlertSeverity ``` 3. Set "Visualization" to "Donut chart".
+
+Widget 7: Mean Time to Triage/Remediate (MTTA/MTTR) (Number Cards)
+Purpose: To track key SOC performance metrics. MTTA measures the average time to acknowledge an incident, and MTTR measures the average time to close it.
+
+Steps:
+
+Add a new query.
+
+Enter the KQL:
+
+Code snippet
+SecurityIncident
+
+| where Status == "Closed" | extend MTTA = datetime_diff('minute', FirstActivityTime, CreatedTime) | extend MTTR = datetime_diff('hour', ClosedTime, CreatedTime) | summarize AvgMTTA_minutes = round(avg(MTTA), 2), AvgMTTR_hours = round(avg(MTTR), 2) ``` 3. Set "Visualization" to "Tiles" or "Numbers" to display the two calculated metrics prominently.
+
+After adding all widgets, arrange them on the workbook canvas and select "Done Editing" to save the dashboard. This workbook now serves as a dynamic, real-time command center for monitoring the security of the lab environment.
+
+Part 7: Packaging the Deliverables
+The comprehensive information compiled in this report can be repurposed into the three distinct outputs specified in the user query: a consolidated project guide, corporate-style documentation, and a GitHub project. This section provides a blueprint for that transformation.
+
+7.1 Output 1: The Consolidated Project Guide
+This output is the primary document itself (Parts 1 through 6). It is structured as a linear, step-by-step walkthrough intended for an individual user to follow from project inception to completion. No further formatting is required; the report in its current form serves as the consolidated guide.
+
+7.2 Output 2: Corporate-Style Documentation & Knowledge Transfer
+This format deconstructs the linear guide into a modular, professional knowledge base suitable for an internal team or for knowledge transfer purposes.
+
+Structure:
+
+Executive Summary: A new, high-level, one-page summary describing the lab's purpose, architecture, capabilities, and business value (e.g., as a training platform for junior analysts).
+
+Architectural Diagrams:
+
+Network Topology Diagram: A clean diagram showing the VNet, subnets, pfSense NVA, and endpoint VMs.
+
+Log Flow Diagram: A diagram illustrating the path of logs from each source (Windows, Linux, pfSense) through the ingestion pipeline (AMA, DCRs, Syslog Collector) into Log Analytics and Sentinel.
+
+Configuration Guides (Standalone Documents):
+
+CG-01: Azure Environment and Cost Management Setup (from Part 1)
+
+CG-02: pfSense NVA Custom Image Preparation and Deployment (from Part 2)
+
+CG-03: Network Routing and Security Configuration (from Part 2)
+
+CG-04: Windows and Linux Endpoint Deployment (from Part 3)
+
+CG-05: Sentinel Log Ingestion Pipeline Configuration (from Part 4)
+
+Operational Runbooks:
+
+RB-01: Threat Hunting with KQL: Presents the KQL queries from Part 5, framed as runbooks. Each runbook would include the query, the threat it detects, MITRE mapping, and recommended initial investigation steps.
+
+User Guides:
+
+UG-01: SOC Monitoring Dashboard: A guide explaining each widget on the workbook created in Part 6, its purpose, and how an analyst should interpret the data.
+
+7.3 Output 3: GitHub Profile Project
+This format packages the lab's technical assets into a public repository, suitable for showcasing on a personal GitHub profile.
+
+Repository Name: azure-sentinel-soc-lab
+
+Repository Structure:
+
+/
+├── kql-queries/
+│   ├── 01-Credential-Access/
+│   │   ├── T1110.001-Windows-RDP-Brute-Force.kql
+│   │   └──...
+│   ├── 02-Privilege-Escalation/
+│   │   └──...
+│   ├── 03-Lateral-Movement/
+│   │   └──...
+│   └── 04-Execution/
+│       └──...
+├── workbook-templates/
+│   └── soc-monitoring-dashboard.json  (Exported workbook template)
+├── images/
+│   ├── architecture-network.png
+│   └── dashboard-screenshot.png
+└── README.md
+README.md Content: This is the most critical file. It should be a well-formatted and detailed summary of the project, derived from the main report.
+
+Project Title: Enterprise SOC Lab with Microsoft Sentinel
+
+Overview: A brief description of the project's goal.
+
+Features: A bulleted list of the lab's capabilities (e.g., Centralized logging for Windows, Linux, and pfSense; 16+ custom KQL detection rules; Interactive SOC dashboard).
+
+Architecture: Include the network and log flow diagrams. Briefly explain the hub-and-spoke model and the UDR configuration.
+
+Deployment Guide: A condensed, step-by-step guide on how to build the lab, linking to official Azure documentation where possible to keep the README concise. This should cover:
+
+Azure Free Account Setup & Cost Management
+
+pfSense Image Preparation & Deployment
+
+Endpoint Deployment
+
+Sentinel & Log Ingestion Setup
+
+Detection Rules Catalog: A table listing all the KQL queries, their purpose, and MITRE mapping. Link each rule name to the corresponding .kql file in the repository.
+
+SOC Dashboard: Include a screenshot of the workbook and explain its widgets.
+
+Disclaimer: A clear warning about the Azure free tier limitations and the potential for costs if the lab is not managed correctly.
+
+Conclusion
+This project provides a comprehensive blueprint for constructing a high-fidelity, enterprise-style Security Operations Center lab at zero initial cost. By strategically leveraging the Azure free account and the Microsoft Sentinel free trial, individuals can gain invaluable hands-on experience with a modern, cloud-native SIEM. The lab's architecture, which includes diverse log sources from Windows and Linux endpoints and a pfSense network appliance, mirrors the complexity of real-world environments.
+
+The emphasis on disciplined cost management, selective data ingestion via Data Collection Rules and XPath filtering, and the use of reusable architectural patterns like the syslog forwarder, imparts practical skills that extend beyond the lab itself. These techniques are directly applicable to production environments where balancing security visibility with budget constraints is a constant challenge. The curated collection of over 15 KQL queries, mapped to the MITRE ATT&CK framework, provides a solid foundation in detection engineering, enabling users to move from simple log collection to proactive threat hunting.
+
+Ultimately, completing this lab equips a security professional not only with the technical proficiency to deploy and operate Microsoft Sentinel but also with the strategic mindset required to build and maintain a cost-effective and efficient security monitoring program in the cloud.
+
+Appendix: Supplementary Reading and Resources
+For further study and deeper understanding of the concepts and technologies used in this lab, the following resources are recommended:
+
+Azure Free Account & Cost Management:
+
+Azure Free Account FAQ: https://azure.microsoft.com/en-us/free/free-account-faq/
+
+Microsoft Cost Management Documentation: https://learn.microsoft.com/en-us/azure/cost-management-billing/cost-management-billing-overview
+
+Avoid charges with your Azure free account: https://learn.microsoft.com/en-us/azure/cost-management-billing/manage/avoid-charges-free-account
+
+Microsoft Sentinel & KQL:
+
+Microsoft Sentinel Documentation: https://learn.microsoft.com/en-us/azure/sentinel/
+
+Kusto Query Language (KQL) from Scratch: https://learn.microsoft.com/en-us/azure/data-explorer/kql-overview
+
+The Azure Sentinel All-in-One Accelerator (GitHub):(https://github.com/Azure/Azure-Sentinel/tree/master/Tools/Sentinel-All-In-One) 
+
+Threat Hunting & Detection Engineering:
+
+MITRE ATT&CK® Framework: https://attack.mitre.org/
+
+The DFIR Report: https://thedfirreport.com/ (for real-world intrusion analysis)
+
+Palantir's Windows Event Forwarding Guidance: A comprehensive guide on which Windows events to monitor.
+
+pfSense and Networking:
+
+pfSense Documentation: https://docs.netgate.com/pfsense/en/latest/
+
+Azure Virtual Network Documentation: https://learn.microsoft.com/en-us/azure/virtual-network/
+
+
+cloudoptimo.com
+Busting Azure Free Tier Myths: Avoid the Hidden Costs - CloudOptimo
+Opens in a new window
+
+azure.microsoft.com
+Create Your Azure Free Account Or Pay As You Go | Microsoft Azure
+Opens in a new window
+
+learn.microsoft.com
+Create free services with Azure free account - Microsoft Cost Management
+Opens in a new window
+
+learn.microsoft.com
+Avoid charges with your Azure free account - Microsoft Cost Management
+Opens in a new window
+
+dev.to
+Azure Free Tier: What Can You Actually Build? - DEV Community
+Opens in a new window
+
+azure.microsoft.com
+Explore Free Azure Services
+Opens in a new window
+
+learn.microsoft.com
+azure Sentinel trial - Microsoft Q&A
+Opens in a new window
+
+learn.microsoft.com
+Plan costs and understand Microsoft Sentinel pricing and billing
+Opens in a new window
+
+docs.azure.cn
+Plan costs and understand Microsoft Sentinel pricing and billing
+Opens in a new window
+
+underdefense.com
+Microsoft Sentinel Pricing in 2025 - UnderDefense
+Opens in a new window
+
+reddit.com
+Microsoft Sentinel cost estimate? : r/cybersecurity - Reddit
+Opens in a new window
+
+reddit.com
+Cost for simple Sentinel deployment : r/AzureSentinel - Reddit
+Opens in a new window
+
+learn.microsoft.com
+Monitor and track Azure free service usage - Microsoft Cost Management
+Opens in a new window
+
+learn.microsoft.com
+Manage and monitor costs for Microsoft Sentinel
+Opens in a new window
+
+reddit.com
+Azure "Free" Edition - how free is it? : r/AZURE - Reddit
+Opens in a new window
+
+learn.microsoft.com
+Azure subscription and service limits, quotas, and constraints - Azure Resource Manager
+Opens in a new window
+
+marketplace.microsoft.com
+pfSense Plus Public Cloud Firewall/VPN/Router
+Opens in a new window
+
+build5nines.com
+Azure Marketplace: PfSense - Gateway, Firewall, Vpn - Build5Nines
+Opens in a new window
+
+christofvg.be
+pfSense on Azure - Part 1 - Create pfSense Virtual Machine ...
+Opens in a new window
+
+christofvg.be
+pfSense on Azure - Part 2 - Install pfSense | Christof VG
+Opens in a new window
+
+christofvg.be
+pfSense on Azure - Part 3 - Deploy pfSense in Azure | Christof VG
+Opens in a new window
+
+pfsense.org
+Download pfSense Community Edition
+Opens in a new window
+
+error.ch
+pfSense on Azure - Security Blog
+Opens in a new window
+
+youtube.com
+19. How to Create a Free Windows Virtual Machine in Azure Portal ...
+Opens in a new window
+
+learn.microsoft.com
+Quickstart: Create a Windows virtual machine in the Azure portal - Microsoft Learn
+Opens in a new window
+
+learn.microsoft.com
+Tutorial: Forward Syslog data to Microsoft Sentinel ... - Microsoft Learn
+Opens in a new window
+
+learn.microsoft.com
+Azure Free Tier - Microsoft Q&A
+Opens in a new window
+
+medium.com
+Simple steps to create Linux (ubuntu 22.04) virtual machine with ssh ...
+Opens in a new window
+
+learn.microsoft.com
+Quickstart: Create a Linux virtual machine in the Azure portal - Microsoft Learn
+Opens in a new window
+
+k21academy.com
+How to create and connect Ubuntu Virtual Machine in Azure - K21 Academy
+Opens in a new window
+
+learn.microsoft.com
+Azure Monitor Agent Overview - Microsoft Learn
+Opens in a new window
+
+learn.microsoft.com
+Migrate to the Azure Monitor Agent (AMA) from the Log Analytics ...
+Opens in a new window
+
+learn.microsoft.com
+Onboard to Microsoft Sentinel | Microsoft Learn
+Opens in a new window
+
+learn.microsoft.com
+Collect Windows events from virtual machines with Azure Monitor ...
+Opens in a new window
+
+infernux.no
+Creating smart Data Collection Rules by parsing EventIDs from Analytic Rules - infernux.no
+Opens in a new window
+
+learn.microsoft.com
+Creating Custom DCR to exclude logging of certain EventID - Microsoft Learn
+Opens in a new window
+
+docs.azure.cn
+Ingest syslog and CEF messages to Microsoft Sentinel - AMA | Azure ...
+Opens in a new window
+
+docs.secureauth.com
+How to Read a Syslog Message - SecureAuth Product Docs
+Opens in a new window
+
+crowdstrike.com
+Syslog Logging Guide: The Basics - CrowdStrike
+Opens in a new window
+
+signoz.io
+Understanding Syslog Severity Levels - A Quick Guide | SigNoz
+Opens in a new window
+
+techcommunity.microsoft.com
+PFSense logs showing up very nicely in Azure Sentinel dashboard
+Opens in a new window
+
+help.rocketcyber.kaseya.com
+Configuring pfSense firewall - Kaseya
+Opens in a new window
+
+docs.actzero.ai
+Configure a pfSense firewall to forward syslogs - ActZero Documentation
+Opens in a new window
+
+logcentral.io
+How to configure syslog servers in PfSense - LogCentral
+Opens in a new window
+
+docs.netgate.com
+Remote Logging with Syslog | pfSense Documentation
+Opens in a new window
+
+docs.logrhythm.com
+Syslog - pfSense Firewall
+Opens in a new window
+
+learn.microsoft.com
+Create and publish hunting queries for Microsoft Sentinel solutions
+Opens in a new window
+
+geekio.co.uk
+Mastering KQL: The Key to Enhancing Cybersecurity with Microsoft Sentinel - GeekIO
+Opens in a new window
+
+learn.microsoft.com
+View aggregated data from the Overview | Microsoft Learn
+Opens in a new window
+
+learn.microsoft.com
+Visualize your data using workbooks in Microsoft Sentinel | Microsoft ...
+Opens in a new window
+
+youtube.com
+Ultimate Guide To Microsoft Sentinel Deployment: Simplify With Github Tools | Peter Rising MVP - YouTube
+Opens in a new window
