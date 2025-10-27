@@ -1,13 +1,4 @@
-Of course. A well-organized repository is key to showcasing a project on GitHub. Here is a complete file and directory structure, including the content for each key file, formatted in Markdown.
 
-This structure organizes the project's assets logically, making it easy for others to understand, use, and contribute to your work.
-
-### Recommended GitHub Repository Structure
-
-Here is the recommended file and directory layout for your `azure-sentinel-soc-lab` project:
-
-```
-/
 ├──.gitignore
 ├── LICENSE
 ├── README.md
